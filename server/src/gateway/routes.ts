@@ -17,6 +17,9 @@ export interface McpRouterDeps {
   manager: GatewayManager;
 }
 
+/** Delay before TCP keepalive probes start on a held GET SSE stream. */
+const STREAM_KEEPALIVE_MS = 60_000;
+
 /** Wire a session's proxy Server to relay downstream notifications; returns an unsubscribe. */
 type WireRelay = (server: Server) => () => void;
 
@@ -34,6 +37,14 @@ export function createMcpRouter(deps: McpRouterDeps): Router {
   interface Session {
     transport: StreamableHTTPServerTransport;
     lastActivity: number;
+    /**
+     * GET SSE streams the client is holding open on this session right now.
+     *
+     * A held stream is the client saying it is still here: an SDK client opens one right after
+     * initialize and keeps it for the life of the connection, so a session in the middle of a
+     * long lull between tool calls is not abandoned, however long ago its last POST was.
+     */
+    openStreams: number;
   }
   const sessions = new Map<string, Session>();
 
@@ -57,14 +68,20 @@ export function createMcpRouter(deps: McpRouterDeps): Router {
   /**
    * Reclaim sessions idle past the configured TTL. Run opportunistically on every request
    * rather than on a timer, so there is no background handle to tear down (important for tests
-   * and clean shutdown). Idleness is measured from the last request on the session — a client
-   * holding only a quiet GET SSE stream is eventually reclaimed and re-initializes on its next call.
+   * and clean shutdown). Idleness is measured from the last request on the session, or from when
+   * its last GET SSE stream closed, and a session holding a stream open is never idle.
+   *
+   * That exemption is not a nicety. The SDK's client transport does not re-initialize on a 404 —
+   * it keeps the dead session id and fails every later call with it — so reclaiming a session
+   * whose client is merely between tool calls breaks that client until it is reconnected by hand.
+   * A dead peer's stream still closes (TCP keepalive is armed on it below), and `maxSessions`
+   * bounds whatever is left.
    */
   const sweepIdle = (): void => {
     const ttl = store.getSettings().sessionIdleTimeoutMs;
     const cutoff = Date.now() - ttl;
     for (const [id, session] of sessions) {
-      if (session.lastActivity < cutoff) {
+      if (session.openStreams === 0 && session.lastActivity < cutoff) {
         drop(id);
       }
     }
@@ -96,6 +113,17 @@ export function createMcpRouter(deps: McpRouterDeps): Router {
       return true;
     }
     session.lastActivity = Date.now();
+    if (req.method === 'GET') {
+      session.openStreams += 1;
+      // A client whose machine slept or dropped off the network never sends a FIN, and a quiet
+      // stream never writes to find out — keepalive is what eventually closes it.
+      req.socket.setKeepAlive(true, STREAM_KEEPALIVE_MS);
+      res.on('close', () => {
+        session.openStreams -= 1;
+        // Idleness starts when the client stopped listening, not when it last spoke.
+        session.lastActivity = Date.now();
+      });
+    }
     await session.transport.handleRequest(req, res, req.body);
     return true;
   };
@@ -126,7 +154,7 @@ export function createMcpRouter(deps: McpRouterDeps): Router {
       // with Last-Event-ID and replay missed notifications; reclaimed with the session.
       eventStore: new BoundedEventStore(),
       onsessioninitialized: (id) => {
-        sessions.set(id, { transport, lastActivity: Date.now() });
+        sessions.set(id, { transport, lastActivity: Date.now(), openStreams: 0 });
       },
     });
     const unwire = wire(server);

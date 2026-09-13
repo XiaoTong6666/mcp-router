@@ -571,6 +571,40 @@ describe('MCP session lifecycle', () => {
     }
   });
 
+  it('keeps a session whose client is holding its SSE stream open, however long since it last called', async () => {
+    await store.updateSettings({ sessionIdleTimeoutMs: 60_000 });
+    const httpServer = createServer(app);
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+    const { port } = httpServer.address() as AddressInfo;
+    const stream = new AbortController();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const id = await initSession();
+      // What an SDK client does right after initialize, and holds for the life of the connection.
+      const sse = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream', 'mcp-session-id': id },
+        signal: stream.signal,
+      });
+      expect(sse.status).toBe(200);
+
+      // A long lull between tool calls, with the stream still open: the client is still here.
+      vi.setSystemTime(Date.now() + 61_000);
+      expect((await listWithSession(id)).status).toBe(200);
+
+      // Once the client stops listening, the TTL runs from then.
+      stream.abort();
+      await vi.waitFor(async () => {
+        vi.setSystemTime(Date.now() + 61_000);
+        expect((await listWithSession(id)).status).toBe(404);
+      });
+    } finally {
+      vi.useRealTimers();
+      stream.abort();
+      httpServer.closeAllConnections();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
+  });
+
   it('evicts the least-recently-active session when the cap is reached', async () => {
     await store.updateSettings({ maxSessions: 1 });
     const first = await initSession();
