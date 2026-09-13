@@ -134,7 +134,7 @@ Errors: non-2xx with `{ error, detail? }`. Validation via the shared zod schemas
 ## How the `@cubicecho/agent-*` packages are used
 
 Reviewed 2026-09-06, re-reviewed 2026-09-08 against `agent-core@2.2.4` and
-`agent-mcp-pool@2.5.0`.
+`agent-mcp-pool@2.5.0`; pool taken to `3.1.0` on 2026-09-13.
 
 **`@cubicecho/agent-core` — wrong layer, still closed.** It is the
 endpoint-agnostic half of an OpenAI-compatible agent loop: capability
@@ -279,6 +279,14 @@ the right behaviour for a *call*, and the wrong thing to build a *handshake* on:
 the proxy was declaring five surfaces for every server regardless of what stood
 behind it. Reading `getServerCapabilities()` at the one connect the 1:1 endpoint
 already makes for `instructions` costs nothing and makes the declaration true.
+
+`3.0.0` split `McpServerConfig` into a stdio arm and an http arm. The router's
+`toConnection` now builds the one arm a server's transport needs instead of a
+flat row padded with `command: ''` / `url: ''`, and `env` rides the stdio arm
+only. The rest of 2.6–3.1 — session hooks, `contextBlocks`, a bounded tool call
+through the pool's own `call()`, a page-count bound on the `tools/list` walk —
+is agent-loop surface the router does not call; the fixes to lazy wake-up scope
+and to a call racing the idle reaper do sit in its path.
 
 **Nothing is open on `agent-mcp-pool`, and nothing this repo can reach is open
 on `agent-core`.** That package moved `2.2.2` → `2.2.4` over the same window:

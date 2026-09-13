@@ -150,20 +150,24 @@ export function resolveMemberConfig(
 }
 
 /**
- * The connection half of a server config as the pool wants it: one flat row
- * rather than this repo's discriminated union.
+ * The connection half of a server config as the pool wants it: one arm of the
+ * pool's own `transport` union (pool 3.0), mapped from this repo's.
+ *
+ * `env` goes on the stdio arm only — it is a child's environment, and a remote
+ * server has no child to hand it to.
  */
 export function toConnection(config: ServerConfig): McpConnection {
   const { transport } = config;
-  return {
-    transport: transport.type === 'stdio' ? 'stdio' : 'http',
-    command: transport.type === 'stdio' ? transport.command : '',
-    args: transport.type === 'stdio' ? transport.args : null,
-    cwd: transport.type === 'stdio' ? transport.cwd : null,
-    env: config.env,
-    url: transport.type === 'streamable-http' ? transport.url : '',
-    headers: transport.type === 'streamable-http' ? transport.headers : null,
-  };
+  if (transport.type === 'stdio') {
+    return {
+      transport: 'stdio',
+      command: transport.command,
+      args: transport.args,
+      cwd: transport.cwd,
+      env: config.env,
+    };
+  }
+  return { transport: 'http', url: transport.url, headers: transport.headers };
 }
 
 /**

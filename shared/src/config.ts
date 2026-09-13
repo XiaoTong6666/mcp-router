@@ -63,8 +63,10 @@ export const settingsFileSchema = z
       .default(5 * 60 * 1000),
     /** Idle lifetime of an MCP streamable-HTTP session before the router reclaims it.
      *  Sessions normally end on a client DELETE; this bounds ones abandoned without one
-     *  (a client that drops its stream and never returns). Reclaimed sessions 404 on the
-     *  next request, prompting a well-behaved client to re-initialize. */
+     *  (a client that drops its stream and never returns), counted from its last request or
+     *  from when its GET SSE stream closed; a session holding that stream open is never
+     *  reclaimed. Reclaimed sessions 404 on the next request — which the MCP SDK's client does
+     *  not recover from on its own, hence the exemption. */
     sessionIdleTimeoutMs: z
       .number()
       .int()
