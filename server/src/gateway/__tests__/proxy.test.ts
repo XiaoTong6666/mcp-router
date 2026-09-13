@@ -11,6 +11,7 @@ import {
   createProxyServer,
   mergeInstructions,
   type ProxyDeps,
+  proxyCapabilities,
 } from '../proxy.ts';
 
 type RecordedActivity = ActivityEntry & { name: string };
@@ -422,9 +423,66 @@ describe('logging passthrough', () => {
   });
 });
 
+describe('capabilities', () => {
+  it("advertises the downstream's own declared surfaces on a 1:1 endpoint", async () => {
+    const server = createProxyServer('demo', stubDeps({}), {
+      capabilities: { tools: { listChanged: true } },
+    });
+    const { client, close } = await connect(server);
+    // A tools-only server behind the proxy is a tools-only endpoint in front of it.
+    expect(client.getServerCapabilities()).toEqual({ tools: { listChanged: true } });
+    await close();
+  });
+
+  it('does not claim subscribe for a downstream that cannot subscribe', () => {
+    // The sharp one: claimed unconditionally before, so a client was invited to
+    // send a `resources/subscribe` that only the failure would answer.
+    expect(proxyCapabilities({ resources: { listChanged: true } })).toEqual({
+      resources: { subscribe: false, listChanged: true },
+    });
+    expect(proxyCapabilities({ resources: { subscribe: true } })).toEqual({
+      resources: { subscribe: true, listChanged: false },
+    });
+  });
+
+  it('answers "no such method" for a surface the downstream does not have', async () => {
+    const { client, close } = await connect(createProxyServer('demo', stubDeps({}), { capabilities: { tools: {} } }));
+    // Not an empty list: that reads as a server which has resources and happens
+    // to have none, which is a different and untrue answer.
+    await expect(client.listResources()).rejects.toMatchObject({ code: ErrorCode.MethodNotFound });
+    await close();
+  });
+
+  it('advertises everything it can relay for a downstream that has not connected', async () => {
+    const { client, close } = await connectProxy(stubDeps({}));
+    // Claiming too much costs a client one empty round trip; claiming too little
+    // costs it the surface, so an unknown downstream gets the generous answer.
+    expect(client.getServerCapabilities()).toEqual({
+      tools: { listChanged: true },
+      resources: { subscribe: true, listChanged: true },
+      prompts: { listChanged: true },
+      logging: {},
+      completions: {},
+    });
+    await close();
+  });
+
+  it('keeps the union on the aggregate, whose members are not connected yet', async () => {
+    const { client, close } = await connectAggregate({ ...stubDeps({}), serverNames: () => ['git'] });
+    expect(client.getServerCapabilities()).toEqual({
+      tools: { listChanged: true },
+      resources: { subscribe: true, listChanged: true },
+      prompts: { listChanged: true },
+      logging: {},
+      completions: {},
+    });
+    await close();
+  });
+});
+
 describe('instructions', () => {
   it("forwards a single downstream server's instructions unchanged", async () => {
-    const server = createProxyServer('demo', stubDeps({}), 'Prefer this over a web search.');
+    const server = createProxyServer('demo', stubDeps({}), { instructions: 'Prefer this over a web search.' });
     const { client, close } = await connect(server);
     // Nothing is renamed on the 1:1 endpoint, so there is nothing to rewrite.
     expect(client.getInstructions()).toBe('Prefer this over a web search.');

@@ -105,6 +105,21 @@ Errors: non-2xx with `{ error, detail? }`. Validation via the shared zod schemas
   session connects before it constructs its proxy `Server` (a spawn that
   endpoint was going to pay anyway); an aggregate never does, and reads only
   what its members have already said in this process
+- **`capabilities` forwarded too, on the 1:1 endpoint.** It rides the same
+  initialize result and the same connect, so it costs nothing more: `/mcp/<name>`
+  declares what the downstream declared, narrowed to the surfaces this proxy
+  relays, and registers a request handler for exactly those. A tools-only server
+  is a tools-only endpoint — asking it for resources is `MethodNotFound`, which
+  is true, rather than an empty list, which reads as a server that has resources
+  and happens to have none. `resources.subscribe` is the one that mattered most:
+  it was claimed unconditionally, so a client was invited to send a subscribe
+  that only its own failure would answer. `listChanged` is mirrored rather than
+  asserted, since this endpoint relays such a notification and never originates
+  one. A downstream that would not connect falls back to the full set — claiming
+  too much costs a client one empty round trip, claiming too little costs it the
+  surface. An aggregate keeps the union: its members are deliberately not
+  connected while a client initializes, so what any of them might support is the
+  only honest answer
 - **Stateful sessions:** `initialize` mints an `Mcp-Session-Id` reused across the
   session's requests and its GET SSE stream (which carries relayed
   notifications); a non-initialize request with no session id → 400, an
@@ -118,8 +133,8 @@ Errors: non-2xx with `{ error, detail? }`. Validation via the shared zod schemas
 
 ## How the `@cubicecho/agent-*` packages are used
 
-Reviewed 2026-09-06, re-reviewed 2026-09-07 against `agent-core@2.2.3` and
-`agent-mcp-pool@2.4.3`.
+Reviewed 2026-09-06, re-reviewed 2026-09-08 against `agent-core@2.2.4` and
+`agent-mcp-pool@2.5.0`.
 
 **`@cubicecho/agent-core` — wrong layer, still closed.** It is the
 endpoint-agnostic half of an OpenAI-compatible agent loop: capability
@@ -222,12 +237,11 @@ closing and forgetting every server — is fixed in `2.4.1` (a reconcile with
 neither now throws). It never bit this repo, which always passes `configs`; it
 was a trap for the next caller.
 
-The two issues raised on the pool since, both from other consumers, are both
-closed now, and both were about a code path this repo does not take. `2.4.2`
-closed [#66](https://github.com/cubicecho/agent-mcp-pool/issues/66) — the
-exported standalone `probe` dropped the row's `connectTimeoutMs` that `2.4.0`
-widened `McpConnection` to carry — and `2.4.3` closed
-[#67](https://github.com/cubicecho/agent-mcp-pool/issues/67): the timeout
+Four releases since, none of which changes an interface this repo holds.
+`2.4.2` closed [#66](https://github.com/cubicecho/agent-mcp-pool/issues/66) —
+the exported standalone `probe` dropped the row's `connectTimeoutMs` that
+`2.4.0` widened `McpConnection` to carry — and `2.4.3` closed
+[#67](https://github.com/cubicecho/agent-mcp-pool/issues/67), where the timeout
 bounded each *request* rather than the connect, so a paginated `tools/list` on
 a cold connect multiplied it by the page count. A `requestBudget` countdown is
 now shared by `initialize` and every page, and the exported `listAllTools`
@@ -239,21 +253,42 @@ dialled by the pool on the row's own patience — and `indexTools: false` means
 there was no `tools/list` drain on a connect to multiply. `connectTimeoutMs`
 here bounds spawn plus `initialize` and nothing else, which is what the setting
 claims, and after `2.4.3` that is what it would bound even with the drain on.
-The router's own `gateway/pagination.ts` is what walks a paginated `tools/list`
-here, on a proxied request rather than on a connect, so the pool's export is
-not in the path either.
+The paginated walk the router *does* do is its own `gateway/pagination.ts`, on a
+proxied request rather than on a connect, so the pool's export is not in that
+path either. `2.4.4`'s fix to `resultText` — embedded resources and resource
+links reaching a model as `[resource content]` — is likewise out of reach: that
+helper flattens a tool result into a string for an agent loop, and this repo
+forwards `CallToolResult` untouched.
 
-**Nothing is open upstream on either package.** `agent-core@2.2.3` is three
-patches of agent-loop accounting — token counting per content part, a produced
-latch read off the chunk, model names in negotiation notices — all of it inside
-the run loop this repo does not have, so the "wrong layer" finding above is
-unchanged by it.
+**`2.5.0` puts `instructions` and `capabilities` on `state()`**
+([#70](https://github.com/cubicecho/agent-mcp-pool/issues/70)), so a consumer
+can read either without `client()` dialling an idle server to hand back a whole
+client for one field. The router keeps reading both off the client in
+`getClient`, because it already holds one there and because it needs them to
+outlive the connection: `state()` clears them when a child is reaped, by design,
+while the aggregate's merged `instructions` is built from whatever its members
+have *ever* said in this process. What the release is used for here is the
+`ServerCapabilities` re-export, which lets `proxy.ts` and `manager.ts` type the
+field without reaching into the SDK's module layout.
 
-The pool does not surface a downstream's `instructions`, and does not need to:
-it hands back the real SDK `Client`, which carries `getInstructions()` from its
-own initialize result. `manager.getClient` reads it on every use — a field
-access, and there is no event to hang it off, since the pool reaps and respawns
-children on its own and each respawn is a fresh handshake.
+The capability half of it is what prompted the endpoint change above. The pool's
+`Client` is constructed without `enforceStrictCapabilities`, so the SDK sends a
+request for a surface the server never declared and lets it come back
+`MethodNotFound` — which `emptyOnMissing` then turns into an empty list. That is
+the right behaviour for a *call*, and the wrong thing to build a *handshake* on:
+the proxy was declaring five surfaces for every server regardless of what stood
+behind it. Reading `getServerCapabilities()` at the one connect the 1:1 endpoint
+already makes for `instructions` costs nothing and makes the declaration true.
+
+**Nothing is open on `agent-mcp-pool`, and nothing this repo can reach is open
+on `agent-core`.** That package moved `2.2.2` → `2.2.4` over the same window:
+token counting per content part, a produced latch read off what a chunk carried,
+a refused temperature told from a refused value, model names in negotiation
+notices. Its one open issue,
+[#61](https://github.com/cubicecho/agent-core/issues/61), is a `side-task.ts`
+latch that turns the no-thinking hints off after any unrecognised 400. All of it
+is inside the run loop this repo does not have, so the "wrong layer" finding
+above is unchanged by it.
 
 **Namespacing stays here regardless.** The pool truncates `<slug>__<tool>` to 64
 characters for OpenAI's function-name limit and resolves by whole-string lookup,

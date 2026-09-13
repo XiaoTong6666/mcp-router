@@ -7,6 +7,7 @@ import {
   type McpServerState,
   type McpStatus,
   MINIMAL_CHILD_ENV,
+  type ServerCapabilities,
 } from '@cubicecho/agent-mcp-pool';
 import type {
   ActivityEntry,
@@ -91,6 +92,16 @@ interface ServerMeta {
    * server, and stale guidance is worse than none.
    */
   instructions?: string;
+  /**
+   * What the downstream declared it supports, as of the last connect.
+   *
+   * Kept for the same reason and on the same terms as `instructions`: it arrives
+   * in the initialize result and nowhere else, while the 1:1 proxy `Server` that
+   * has to re-declare it is constructed per client session. Cleared with the
+   * config it was read under — a server whose command changed may well answer a
+   * different set of methods.
+   */
+  capabilities?: ServerCapabilities;
   /** Count of proxied calls recorded via recordActivity this process (reset on restart). */
   callCount: number;
   /** ISO timestamp of the most recent recorded call. */
@@ -280,10 +291,12 @@ export class GatewayManager {
         continue;
       }
       if (needsRestart(meta.config, next)) {
-        // The pool is about to replace the child; a count and an instructions
-        // string read from the old one stop being true at the same moment.
+        // The pool is about to replace the child; a count, an instructions string
+        // and a capability set read from the old one stop being true at the same
+        // moment.
         meta.toolCount = undefined;
         meta.instructions = undefined;
+        meta.capabilities = undefined;
       }
       meta.config = next;
     }
@@ -310,11 +323,12 @@ export class GatewayManager {
     }
     const meta = this.meta.get(name);
     if (meta) {
-      // Read on every use rather than only on the connects: the SDK kept this
-      // from the initialize result, so it is a field access, and there is no
-      // event to hang it off — the pool reaps and respawns children on its own,
+      // Read on every use rather than only on the connects: the SDK kept these
+      // from the initialize result, so they are field accesses, and there is no
+      // event to hang them off — the pool reaps and respawns children on its own,
       // and each respawn is a fresh handshake that may say something new.
       meta.instructions = client.getInstructions();
+      meta.capabilities = client.getServerCapabilities();
     }
     return client;
   }
@@ -331,6 +345,15 @@ export class GatewayManager {
    */
   instructions(name: string): string | undefined {
     return this.meta.get(name)?.instructions;
+  }
+
+  /**
+   * The downstream's declared capabilities as of its last connect, if it has ever
+   * connected in this process. Deliberately does not connect, for the same reason
+   * {@link instructions} does not.
+   */
+  capabilities(name: string): ServerCapabilities | undefined {
+    return this.meta.get(name)?.capabilities;
   }
 
   /** Connect (spawning if needed) and return the workspace-scoped client for a server. */

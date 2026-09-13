@@ -465,6 +465,16 @@ describe('MCP session lifecycle', () => {
       expect(aggregate.getInstructions()).toContain(ECHO_INSTRUCTIONS);
       // ...along with the one thing no member can know: its names are prefixed here.
       expect(aggregate.getInstructions()).toContain('`<server>__`');
+
+      // The same connect settles what this endpoint declares. The fixture serves
+      // tools and nothing else, so a client is not invited to ask it for resources
+      // or to subscribe to them.
+      expect(direct.getServerCapabilities()).toEqual({ tools: { listChanged: true } });
+      // The aggregate has not connected anything to ask, so it keeps the union of
+      // what any member might support.
+      expect(aggregate.getServerCapabilities()).toMatchObject({
+        resources: { subscribe: true, listChanged: true },
+      });
     } finally {
       await Promise.all([direct.close(), aggregate.close()]);
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

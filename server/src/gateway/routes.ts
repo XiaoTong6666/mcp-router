@@ -10,7 +10,7 @@ import type { GatewayManager } from './manager.ts';
 import { workspaceInstanceKey } from './manager.ts';
 import { enabledMembers } from './members.ts';
 import { namespaceNotification, pushNotification } from './notifications.ts';
-import { createAggregateServer, createProxyServer, mergeInstructions } from './proxy.ts';
+import { createAggregateServer, createProxyServer, type DownstreamIdentity, mergeInstructions } from './proxy.ts';
 
 export interface McpRouterDeps {
   store: ConfigStore;
@@ -149,17 +149,18 @@ export function createMcpRouter(deps: McpRouterDeps): Router {
   };
 
   /**
-   * The downstream's instructions for a 1:1 session, connecting first to get them.
+   * What a 1:1 session re-emits from the downstream's own handshake, connecting first to get it.
    *
-   * `instructions` travels only in the initialize result, so this is the one chance to have
-   * them — and this endpoint is a client that asked for exactly this server, so the spawn it
-   * costs is one the session was going to pay anyway. A downstream that will not connect still
-   * gets its session: the failure belongs on the first request that needs the server, where it
-   * carries its own status and the child's stderr, not on initialize.
+   * `instructions` and `capabilities` travel only in the initialize result, so this is the one
+   * chance to have them — and this endpoint is a client that asked for exactly this server, so
+   * the spawn it costs is one the session was going to pay anyway. A downstream that will not
+   * connect still gets its session, and falls back to advertising everything the proxy can
+   * relay: the failure belongs on the first request that needs the server, where it carries its
+   * own status and the child's stderr, not on initialize.
    */
-  const proxyInstructions = async (name: string): Promise<string | undefined> => {
+  const proxyIdentity = async (name: string): Promise<DownstreamIdentity> => {
     await manager.getClient(name).catch(() => {});
-    return manager.instructions(name);
+    return { instructions: manager.instructions(name), capabilities: manager.capabilities(name) };
   };
 
   /**
@@ -262,7 +263,7 @@ export function createMcpRouter(deps: McpRouterDeps): Router {
     await start(
       req,
       res,
-      async () => createProxyServer(name, proxyDeps, await proxyInstructions(name)),
+      async () => createProxyServer(name, proxyDeps, await proxyIdentity(name)),
       // 1:1 endpoint: no namespacing, forward the owning server's notifications as-is.
       (server) =>
         manager.onNotification((key, notification) => {

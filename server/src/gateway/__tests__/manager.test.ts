@@ -372,21 +372,28 @@ describe('GatewayManager lifecycle over the pool', () => {
     }
   });
 
-  it("remembers the downstream's instructions from the connect, and forgets them on an edit", async () => {
+  it("remembers the downstream's instructions and capabilities, and forgets them on an edit", async () => {
     const manager = new GatewayManager(() => settings);
     await manager.reconcile([echoConfig('echo')]);
     try {
-      // Nothing has handshaken yet, and `instructions` arrives nowhere but in the
-      // initialize result — so there is nothing to know and it does not go and find out.
+      // Nothing has handshaken yet, and both arrive nowhere but in the initialize
+      // result — so there is nothing to know and it does not go and find out.
       expect(manager.instructions('echo')).toBeUndefined();
+      expect(manager.capabilities('echo')).toBeUndefined();
       expect(manager.status('echo')?.state).toBe('stopped');
 
       await manager.getClient('echo');
       expect(manager.instructions('echo')).toBe(ECHO_INSTRUCTIONS);
+      // The fixture registers tools and nothing else, so that is what the 1:1
+      // endpoint in front of it has to declare.
+      expect(manager.capabilities('echo')).toMatchObject({ tools: expect.anything() });
+      expect(manager.capabilities('echo')?.resources).toBeUndefined();
 
-      // A changed command is a different server; its old guidance is not evidence about the new one.
+      // A changed command is a different server; its old guidance and its old
+      // method list are not evidence about the new one.
       await manager.reconcile([echoConfig('echo', { env: { CHANGED: '1' } })]);
       expect(manager.instructions('echo')).toBeUndefined();
+      expect(manager.capabilities('echo')).toBeUndefined();
     } finally {
       await manager.stopAll();
     }
