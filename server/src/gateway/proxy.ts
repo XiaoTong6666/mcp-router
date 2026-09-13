@@ -1,3 +1,6 @@
+// Re-exported by the pool so this file can type the field without reaching into the SDK's
+// module layout, which the pool pins through its peer dependency anyway.
+import type { ServerCapabilities } from '@cubicecho/agent-mcp-pool';
 import type { ActivityEntry } from '@mcp-router/shared';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -24,17 +27,59 @@ import { collectFrom } from './fan-out.ts';
 import { namespaceName, splitNamespacedName } from './naming.ts';
 import { listAllPrompts, listAllResources, listAllResourceTemplates, listAllTools } from './pagination.ts';
 
-const PROXY_CAPABILITIES = {
-  capabilities: {
-    // listChanged + subscribe are relayed from the downstream servers over a
-    // stateful session; completions/logging are forwarded request/response.
-    tools: { listChanged: true },
-    resources: { subscribe: true, listChanged: true },
-    prompts: { listChanged: true },
-    logging: {},
-    completions: {},
-  },
+/**
+ * What an endpoint advertises when it cannot know what is behind it: everything
+ * this proxy is able to relay. `listChanged` and `subscribe` are relayed from the
+ * downstream servers over a stateful session; completions/logging are forwarded
+ * request/response.
+ *
+ * Right for an aggregate, whose members are deliberately not connected while a
+ * client initializes — the union is the honest answer when any member might
+ * support any of it. On a 1:1 endpoint it is the fallback for a downstream that
+ * would not connect, where claiming everything is the safer error: a client that
+ * asks and gets an empty list has lost a round trip, one told a surface does not
+ * exist has lost the surface.
+ */
+const PROXY_CAPABILITIES: ServerCapabilities = {
+  tools: { listChanged: true },
+  resources: { subscribe: true, listChanged: true },
+  prompts: { listChanged: true },
+  logging: {},
+  completions: {},
 };
+
+/**
+ * What a 1:1 endpoint advertises: what the downstream itself declared, narrowed to
+ * the surfaces this proxy relays.
+ *
+ * Nothing is renamed or synthesized on this endpoint, so its capabilities are the
+ * downstream's own for the same reason its `instructions` are. A proxy that claims
+ * a capability the server behind it lacks makes a question the handshake exists to
+ * answer unanswerable: `resources.subscribe` was claimed unconditionally, so a
+ * client learned that a server cannot subscribe from the failure of a subscribe it
+ * was invited to send. `listChanged` is mirrored rather than asserted because this
+ * endpoint only ever relays such a notification — it never originates one.
+ *
+ * @param downstream The server's declared capabilities, as of its last connect.
+ *   Absent when it has never connected — see {@link PROXY_CAPABILITIES}.
+ */
+export function proxyCapabilities(downstream?: ServerCapabilities): ServerCapabilities {
+  if (!downstream) {
+    return PROXY_CAPABILITIES;
+  }
+  return {
+    ...(downstream.tools && { tools: { listChanged: downstream.tools.listChanged === true } }),
+    ...(downstream.resources && {
+      resources: {
+        subscribe: downstream.resources.subscribe === true,
+        listChanged: downstream.resources.listChanged === true,
+      },
+    }),
+    ...(downstream.prompts && { prompts: { listChanged: downstream.prompts.listChanged === true } }),
+    ...(downstream.logging && { logging: {} }),
+    ...(downstream.completions && { completions: {} }),
+  };
+}
 
 /** Empty completion result used when a downstream server has no completions capability. */
 const EMPTY_COMPLETION = { completion: { values: [], total: 0, hasMore: false } };
@@ -157,119 +202,162 @@ async function track<T>(deps: ProxyDeps, name: string, ctx: TrackContext, run: (
 }
 
 /**
+ * What a 1:1 endpoint re-emits from the downstream's own initialize result. Both
+ * travel nowhere else, so both are read from a connection rather than from config.
+ */
+export interface DownstreamIdentity {
+  /**
+   * The downstream's own instructions, forwarded unchanged — nothing is renamed on
+   * this endpoint, so its guidance is true of it as written. Absent when the server
+   * has none, or has not connected yet.
+   */
+  instructions?: string;
+  /**
+   * What the downstream declared it supports. Absent when it has not connected, in
+   * which case the endpoint advertises everything it is able to relay instead.
+   */
+  capabilities?: ServerCapabilities;
+}
+
+/**
  * MCP server proxying a single downstream server 1:1 (used for /mcp/:name).
  *
- * @param instructions The downstream's own, forwarded unchanged — nothing is
- *   renamed on this endpoint, so its guidance is true of it as written. Absent
- *   when the server has none, or has not connected yet.
+ * @param downstream The server's own instructions and capabilities, as of its last
+ *   connect. Empty for a server that has never connected in this process.
  */
-export function createProxyServer(name: string, deps: ProxyDeps, instructions?: string): Server {
+export function createProxyServer(name: string, deps: ProxyDeps, downstream: DownstreamIdentity = {}): Server {
+  const advertised = proxyCapabilities(downstream.capabilities);
   const server = new Server(
     { name: `mcp-router/${name}`, version: SERVER_VERSION },
-    { ...PROXY_CAPABILITIES, instructions },
+    { capabilities: advertised, instructions: downstream.instructions },
   );
   const client = () => deps.getClient(name);
 
-  server.setRequestHandler(ListToolsRequestSchema, async (req) =>
-    track(deps, name, { via: 'direct', method: 'tools/list', params: req.params, failuresOnly: true }, async () => {
-      // A missing capability is a definitive "has no tools" — clear any count
-      // from a previous incarnation; any other failure propagates, and track()
-      // converts it to an MCP error.
-      const result = await emptyOnMissing(async () => (await client()).listTools(req.params));
-      deps.recordToolCount(name, result?.tools.length ?? 0);
-      return result ?? { tools: [] };
-    }),
-  );
+  // A handler per surface this endpoint declares, and none for a surface it does
+  // not. The SDK enforces the pairing — `setRequestHandler` refuses a method the
+  // server's own capabilities do not cover — and it is the honest answer either
+  // way: a client that asks a tools-only server for resources should hear "no
+  // such method", which is true, rather than an empty list, which reads as a
+  // server that has resources and happens to have none right now.
+  if (advertised.tools) {
+    server.setRequestHandler(ListToolsRequestSchema, async (req) =>
+      track(deps, name, { via: 'direct', method: 'tools/list', params: req.params, failuresOnly: true }, async () => {
+        // A missing capability is a definitive "has no tools" — clear any count
+        // from a previous incarnation; any other failure propagates, and track()
+        // converts it to an MCP error.
+        const result = await emptyOnMissing(async () => (await client()).listTools(req.params));
+        deps.recordToolCount(name, result?.tools.length ?? 0);
+        return result ?? { tools: [] };
+      }),
+    );
 
-  server.setRequestHandler(CallToolRequestSchema, async (req) =>
-    track(
-      deps,
-      name,
-      { via: 'direct', method: 'tools/call', target: req.params.name, params: req.params },
-      async () => (await (await client()).callTool(req.params)) as CallToolResult,
-    ),
-  );
+    server.setRequestHandler(CallToolRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'tools/call', target: req.params.name, params: req.params },
+        async () => (await (await client()).callTool(req.params)) as CallToolResult,
+      ),
+    );
+  }
 
-  server.setRequestHandler(ListResourcesRequestSchema, async (req) =>
-    track(deps, name, { via: 'direct', method: 'resources/list', params: req.params, failuresOnly: true }, async () => {
-      return (await emptyOnMissing(async () => (await client()).listResources(req.params))) ?? { resources: [] };
-    }),
-  );
+  if (advertised.resources) {
+    server.setRequestHandler(ListResourcesRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'resources/list', params: req.params, failuresOnly: true },
+        async () => {
+          return (await emptyOnMissing(async () => (await client()).listResources(req.params))) ?? { resources: [] };
+        },
+      ),
+    );
 
-  server.setRequestHandler(ListResourceTemplatesRequestSchema, async (req) =>
-    track(
-      deps,
-      name,
-      { via: 'direct', method: 'resources/templates/list', params: req.params, failuresOnly: true },
-      async () => {
-        return (
-          (await emptyOnMissing(async () => (await client()).listResourceTemplates(req.params))) ?? {
-            resourceTemplates: [],
-          }
-        );
-      },
-    ),
-  );
+    server.setRequestHandler(ListResourceTemplatesRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'resources/templates/list', params: req.params, failuresOnly: true },
+        async () => {
+          return (
+            (await emptyOnMissing(async () => (await client()).listResourceTemplates(req.params))) ?? {
+              resourceTemplates: [],
+            }
+          );
+        },
+      ),
+    );
 
-  server.setRequestHandler(ReadResourceRequestSchema, async (req) =>
-    track(deps, name, { via: 'direct', method: 'resources/read', target: req.params.uri, params: req.params }, () =>
-      client().then((c) => c.readResource(req.params)),
-    ),
-  );
+    server.setRequestHandler(ReadResourceRequestSchema, async (req) =>
+      track(deps, name, { via: 'direct', method: 'resources/read', target: req.params.uri, params: req.params }, () =>
+        client().then((c) => c.readResource(req.params)),
+      ),
+    );
+  }
 
-  server.setRequestHandler(ListPromptsRequestSchema, async (req) =>
-    track(deps, name, { via: 'direct', method: 'prompts/list', params: req.params, failuresOnly: true }, async () => {
-      return (await emptyOnMissing(async () => (await client()).listPrompts(req.params))) ?? { prompts: [] };
-    }),
-  );
+  // Only where the downstream said it can: a subscribe to a server that cannot
+  // is a request that exists to fail.
+  if (advertised.resources?.subscribe) {
+    server.setRequestHandler(SubscribeRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'resources/subscribe', target: req.params.uri, params: req.params },
+        () => client().then((c) => c.subscribeResource(req.params)),
+      ),
+    );
 
-  server.setRequestHandler(GetPromptRequestSchema, async (req) =>
-    track(deps, name, { via: 'direct', method: 'prompts/get', target: req.params.name, params: req.params }, () =>
-      client().then((c) => c.getPrompt(req.params)),
-    ),
-  );
+    server.setRequestHandler(UnsubscribeRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'resources/unsubscribe', target: req.params.uri, params: req.params },
+        () => client().then((c) => c.unsubscribeResource(req.params)),
+      ),
+    );
+  }
 
-  // Completions fire per keystroke; like list ops, only their failures are recorded.
-  server.setRequestHandler(CompleteRequestSchema, async (req) =>
-    track(
-      deps,
-      name,
-      { via: 'direct', method: 'completion/complete', params: req.params, failuresOnly: true },
-      async () => {
-        return (await emptyOnMissing(async () => (await client()).complete(req.params))) ?? EMPTY_COMPLETION;
-      },
-    ),
-  );
+  if (advertised.prompts) {
+    server.setRequestHandler(ListPromptsRequestSchema, async (req) =>
+      track(deps, name, { via: 'direct', method: 'prompts/list', params: req.params, failuresOnly: true }, async () => {
+        return (await emptyOnMissing(async () => (await client()).listPrompts(req.params))) ?? { prompts: [] };
+      }),
+    );
 
-  server.setRequestHandler(SubscribeRequestSchema, async (req) =>
-    track(
-      deps,
-      name,
-      { via: 'direct', method: 'resources/subscribe', target: req.params.uri, params: req.params },
-      () => client().then((c) => c.subscribeResource(req.params)),
-    ),
-  );
+    server.setRequestHandler(GetPromptRequestSchema, async (req) =>
+      track(deps, name, { via: 'direct', method: 'prompts/get', target: req.params.name, params: req.params }, () =>
+        client().then((c) => c.getPrompt(req.params)),
+      ),
+    );
+  }
 
-  server.setRequestHandler(UnsubscribeRequestSchema, async (req) =>
-    track(
-      deps,
-      name,
-      { via: 'direct', method: 'resources/unsubscribe', target: req.params.uri, params: req.params },
-      () => client().then((c) => c.unsubscribeResource(req.params)),
-    ),
-  );
+  if (advertised.completions) {
+    // Completions fire per keystroke; like list ops, only their failures are recorded.
+    server.setRequestHandler(CompleteRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'completion/complete', params: req.params, failuresOnly: true },
+        async () => {
+          return (await emptyOnMissing(async () => (await client()).complete(req.params))) ?? EMPTY_COMPLETION;
+        },
+      ),
+    );
+  }
 
-  server.setRequestHandler(SetLevelRequestSchema, async (req) =>
-    track(
-      deps,
-      name,
-      { via: 'direct', method: 'logging/setLevel', target: req.params.level, params: req.params },
-      async () => {
-        await emptyOnMissing(async () => (await client()).setLoggingLevel(req.params.level));
-        return {};
-      },
-    ),
-  );
+  if (advertised.logging) {
+    server.setRequestHandler(SetLevelRequestSchema, async (req) =>
+      track(
+        deps,
+        name,
+        { via: 'direct', method: 'logging/setLevel', target: req.params.level, params: req.params },
+        async () => {
+          await emptyOnMissing(async () => (await client()).setLoggingLevel(req.params.level));
+          return {};
+        },
+      ),
+    );
+  }
 
   return server;
 }
@@ -290,7 +378,12 @@ export interface AggregateDeps extends ProxyDeps {
  *   the initialize result.
  */
 export function createAggregateServer(deps: AggregateDeps, instructions?: string): Server {
-  const server = new Server({ name: 'mcp-router', version: SERVER_VERSION }, { ...PROXY_CAPABILITIES, instructions });
+  const server = new Server(
+    { name: 'mcp-router', version: SERVER_VERSION },
+    // The union: an aggregate never connects its members while a client is
+    // initializing, so what any of them might support is the honest answer.
+    { capabilities: PROXY_CAPABILITIES, instructions },
+  );
 
   // Aggregate list ops fan out to every enabled server on each client
   // (re)connect and list_changed; see collectFrom for what that does and does
