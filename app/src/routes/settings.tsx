@@ -1,10 +1,10 @@
 import { useStore } from '@tanstack/react-form';
 import { createFileRoute } from '@tanstack/react-router';
 import { RotateCwIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useAppForm } from '@/components/app-form';
 import { CardLayout } from '@/components/card-layout';
+import { DetailRow } from '@/components/domain/detail-row';
 import { PageLayout } from '@/components/page-layout';
 import { QueryError } from '@/components/query-state';
 import { Badge } from '@/components/ui/badge';
@@ -75,15 +75,6 @@ function IdleTimeoutEditor({ currentMs }: { currentMs: number }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-4 text-sm">
-      <span className="w-28 shrink-0 text-muted-foreground">{label}</span>
-      <div>{children}</div>
-    </div>
-  );
-}
-
 function SettingsPage() {
   const status = useRouterStatus();
   const { data } = status;
@@ -114,16 +105,16 @@ function SettingsPage() {
               ) : (
                 data && (
                   <>
-                    <Row label="Version">{data.version}</Row>
-                    <Row label="Uptime">{formatUptime(data.uptimeSeconds)}</Row>
-                    <Row label="Port">{port}</Row>
-                    <Row label="Servers">
+                    <DetailRow label="Version">{data.version}</DetailRow>
+                    <DetailRow label="Uptime">{formatUptime(data.uptimeSeconds)}</DetailRow>
+                    <DetailRow label="Port">{port}</DetailRow>
+                    <DetailRow label="Servers">
                       {data.runningCount}/{data.serverCount} running
-                    </Row>
-                    <Row label="Idle timeout">
+                    </DetailRow>
+                    <DetailRow label="Idle timeout">
                       <IdleTimeoutEditor key={data.idleTimeoutMs} currentMs={data.idleTimeoutMs} />
-                    </Row>
-                    <Row label="Auth">
+                    </DetailRow>
+                    <DetailRow label="Auth">
                       {data.authEnabled ? (
                         <Badge className="border-transparent bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                           enabled
@@ -131,7 +122,7 @@ function SettingsPage() {
                       ) : (
                         <Badge variant="secondary">disabled</Badge>
                       )}
-                    </Row>
+                    </DetailRow>
                     <p className="text-xs text-muted-foreground">
                       The bearer token is set via the <code>MCP_ROUTER_TOKEN</code> environment variable or{' '}
                       <code>settings.json</code>; it protects <code>/api/*</code> and <code>/mcp*</code>.

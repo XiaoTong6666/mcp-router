@@ -3,19 +3,12 @@ import { slugify } from '@mcp-router/shared';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import { type FormEvent, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { DialogLayout } from '@/components/dialog-layout';
 import { ConnectCard } from '@/components/domain/connect-card';
+import { FormField } from '@/components/form-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useCreateWorkspace, useServers, useUpdateWorkspace } from '@/lib/queries';
@@ -54,6 +47,8 @@ const linesToRecord = (text: string): Record<string, string> => {
   }
   return record;
 };
+
+const FORM_ID = 'workspace-form';
 
 const textToArgs = (text: string): string[] => text.split('\n').filter((line) => line.trim().length > 0);
 
@@ -197,75 +192,82 @@ export function WorkspaceDialog({ open, onOpenChange, workspace }: WorkspaceDial
   const endpoint = useMemo(() => `${window.location.origin}/mcp/w/${workspace?.slug ?? ''}`, [workspace?.slug]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? `Edit ${workspace.name}` : 'New workspace'}</DialogTitle>
-          <DialogDescription>
-            A workspace exposes a custom aggregate of the servers you choose at its own URL, with optional per-workspace
-            parameter overrides. Each server runs isolated per workspace, independent of its global enabled state.
-          </DialogDescription>
-        </DialogHeader>
+    <DialogLayout
+      open={open}
+      onOpenChange={onOpenChange}
+      size="lg"
+      title={isEdit ? `Edit ${workspace.name}` : 'New workspace'}
+      description="A workspace exposes a custom aggregate of the servers you choose at its own URL, with optional per-workspace parameter overrides. Each server runs isolated per workspace, independent of its global enabled state."
+      footerActions={(close) => (
+        <>
+          <Button type="button" variant="ghost" onClick={close}>
+            Cancel
+          </Button>
+          <Button type="submit" form={FORM_ID} disabled={pending || !slugValid}>
+            {pending ? 'Saving…' : isEdit ? 'Save changes' : 'Create workspace'}
+          </Button>
+        </>
+      )}
+      content={
+        <form id={FORM_ID} onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <FormField
+            label="Workspace name"
+            descriptionClassName="font-mono"
+            description={
+              <>
+                {slugValid ? `/mcp/w/${slug}` : 'Enter a name to generate the URL'}
+                {isEdit && slugValid && slug !== workspace.slug && ' — renaming moves the URL'}
+              </>
+            }
+            control={
+              <Input value={name} placeholder="Acme backend" onChange={(event) => setName(event.target.value)} />
+            }
+          />
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="workspace-name">Workspace name</Label>
-            <Input
-              id="workspace-name"
-              value={name}
-              placeholder="Acme backend"
-              onChange={(event) => setName(event.target.value)}
-            />
-            <p className="font-mono text-xs text-muted-foreground">
-              {slugValid ? `/mcp/w/${slug}` : 'Enter a name to generate the URL'}
-              {isEdit && slugValid && slug !== workspace.slug && ' — renaming moves the URL'}
-            </p>
-          </div>
+          <FormField
+            label="Description (optional)"
+            control={
+              <Input
+                value={description}
+                placeholder="What this workspace is for"
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            }
+          />
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="workspace-description">Description (optional)</Label>
-            <Input
-              id="workspace-description"
-              value={description}
-              placeholder="What this workspace is for"
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
+          <FormField
+            orientation="horizontal"
+            label="Enabled"
+            description="When off, the workspace's endpoint returns 404 without deleting it."
+            control={<Switch checked={enabled} onCheckedChange={setEnabled} />}
+          />
 
-          <label className="flex items-center gap-3 text-sm" htmlFor="workspace-enabled">
-            <Switch id="workspace-enabled" checked={enabled} onCheckedChange={setEnabled} />
-            <span>
-              Enabled
-              <span className="block text-xs text-muted-foreground">
-                When off, the workspace's endpoint returns 404 without deleting it.
-              </span>
-            </span>
-          </label>
-
-          <div className="flex flex-col gap-2">
-            <Label>Servers</Label>
-            <p className="text-xs text-muted-foreground">
-              Choose which servers this workspace exposes. Expand a server to override its parameters for this workspace
-              only.
-            </p>
-            <div className="divide-y rounded-md border">
-              {(servers ?? []).length === 0 && (
-                <p className="p-3 text-sm text-muted-foreground">No servers installed yet.</p>
-              )}
-              {(servers ?? []).map((server) => (
-                <MemberRow
-                  key={server.config.name}
-                  server={server}
-                  included={members.has(server.config.name)}
-                  expanded={expanded === server.config.name}
-                  override={overrides[server.config.name] ?? emptyOverride()}
-                  onToggle={(on) => toggleMember(server.config.name, on)}
-                  onExpandToggle={() => setExpanded((cur) => (cur === server.config.name ? null : server.config.name))}
-                  onOverrideChange={(patch) => setOverride(server.config.name, patch)}
-                />
-              ))}
-            </div>
-          </div>
+          <FormField
+            asGroup
+            label="Servers"
+            description="Choose which servers this workspace exposes. Expand a server to override its parameters for this workspace only."
+            control={
+              <div className="divide-y rounded-md border">
+                {(servers ?? []).length === 0 && (
+                  <p className="p-3 text-sm text-muted-foreground">No servers installed yet.</p>
+                )}
+                {(servers ?? []).map((server) => (
+                  <MemberRow
+                    key={server.config.name}
+                    server={server}
+                    included={members.has(server.config.name)}
+                    expanded={expanded === server.config.name}
+                    override={overrides[server.config.name] ?? emptyOverride()}
+                    onToggle={(on) => toggleMember(server.config.name, on)}
+                    onExpandToggle={() =>
+                      setExpanded((cur) => (cur === server.config.name ? null : server.config.name))
+                    }
+                    onOverrideChange={(patch) => setOverride(server.config.name, patch)}
+                  />
+                ))}
+              </div>
+            }
+          />
 
           {isEdit && enabled && (
             <ConnectCard
@@ -274,18 +276,9 @@ export function WorkspaceDialog({ open, onOpenChange, workspace }: WorkspaceDial
               description="Point an MCP client at this workspace's aggregate endpoint."
             />
           )}
-
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={pending || !slugValid}>
-              {pending ? 'Saving…' : isEdit ? 'Save changes' : 'Create workspace'}
-            </Button>
-          </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      }
+    />
   );
 }
 
@@ -333,67 +326,64 @@ function MemberRow({
         <div className="flex flex-col gap-3 pl-11">
           {isStdio ? (
             <>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`env-${name}`} className="text-xs">
-                  Env overrides (KEY=VALUE per line)
-                </Label>
-                <Textarea
-                  id={`env-${name}`}
-                  rows={3}
-                  className="resize-y font-mono text-xs"
-                  placeholder={'API_KEY=workspace-specific-value'}
-                  value={override.env}
-                  onChange={(event) => onOverrideChange({ env: event.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">Merged over the server's env; workspace values win.</p>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`args-${name}`} className="text-xs">
-                  Arguments (one per line)
-                </Label>
-                <Textarea
-                  id={`args-${name}`}
-                  rows={3}
-                  className="resize-y font-mono text-xs"
-                  placeholder={'leave blank to use the server defaults'}
-                  value={override.args}
-                  onChange={(event) => onOverrideChange({ args: event.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">Replaces the server's args entirely when set.</p>
-              </div>
+              <FormField
+                label="Env overrides (KEY=VALUE per line)"
+                labelClassName="text-xs"
+                description="Merged over the server's env; workspace values win."
+                control={
+                  <Textarea
+                    rows={3}
+                    className="resize-y font-mono text-xs"
+                    placeholder={'API_KEY=workspace-specific-value'}
+                    value={override.env}
+                    onChange={(event) => onOverrideChange({ env: event.target.value })}
+                  />
+                }
+              />
+              <FormField
+                label="Arguments (one per line)"
+                labelClassName="text-xs"
+                description="Replaces the server's args entirely when set."
+                control={
+                  <Textarea
+                    rows={3}
+                    className="resize-y font-mono text-xs"
+                    placeholder={'leave blank to use the server defaults'}
+                    value={override.args}
+                    onChange={(event) => onOverrideChange({ args: event.target.value })}
+                  />
+                }
+              />
             </>
           ) : (
             <>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`url-${name}`} className="text-xs">
-                  URL override
-                </Label>
-                <Input
-                  id={`url-${name}`}
-                  className="font-mono text-xs"
-                  placeholder={baseUrl ?? 'https://example.com/mcp'}
-                  value={override.url}
-                  onChange={(event) => onOverrideChange({ url: event.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Replaces the server's URL for this workspace — e.g. append a path to scope a shared upstream. Leave as
-                  the base URL to inherit it.
-                </p>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`headers-${name}`} className="text-xs">
-                  Header overrides (KEY=VALUE per line)
-                </Label>
-                <Textarea
-                  id={`headers-${name}`}
-                  rows={3}
-                  className="resize-y font-mono text-xs"
-                  placeholder={'Authorization=Bearer workspace-token'}
-                  value={override.headers}
-                  onChange={(event) => onOverrideChange({ headers: event.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">Merged over the server's request headers.</p>
-              </div>
+              <FormField
+                label="URL override"
+                labelClassName="text-xs"
+                description="Replaces the server's URL for this workspace — e.g. append a path to scope a shared upstream. Leave as the base URL to inherit it."
+                control={
+                  <Input
+                    className="font-mono text-xs"
+                    placeholder={baseUrl ?? 'https://example.com/mcp'}
+                    value={override.url}
+                    onChange={(event) => onOverrideChange({ url: event.target.value })}
+                  />
+                }
+              />
+              <FormField
+                label="Header overrides (KEY=VALUE per line)"
+                labelClassName="text-xs"
+                description="Merged over the server's request headers."
+                control={
+                  <Textarea
+                    rows={3}
+                    className="resize-y font-mono text-xs"
+                    placeholder={'Authorization=Bearer workspace-token'}
+                    value={override.headers}
+                    onChange={(event) => onOverrideChange({ headers: event.target.value })}
+                  />
+                }
+              />
             </>
           )}
         </div>

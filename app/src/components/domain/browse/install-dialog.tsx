@@ -4,24 +4,20 @@ import {
   type RegistryServer,
   serverNameSchema,
 } from '@mcp-router/shared';
-import { PlusIcon, XIcon } from 'lucide-react';
-import { type FormEvent, useMemo, useState } from 'react';
+import { useStore } from '@tanstack/react-form';
+import { useMemo } from 'react';
 import { toast } from 'sonner';
+import { InputField, useAppForm } from '@/components/app-form';
+import { DialogLayout } from '@/components/dialog-layout';
+import { type KeyValueRow, KeyValueRows, rowsToRecord } from '@/components/domain/key-value-rows';
+import { FormField } from '@/components/form-field';
+import { OptionSelect } from '@/components/option-select';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { suggestLocalName } from '@/lib/format';
 import { useInstallServer } from '@/lib/queries';
 import { toastApiError } from '@/lib/toast';
+
+const FORM_ID = 'install-server-form';
 
 interface PackageOption {
   selector: string;
@@ -43,8 +39,8 @@ function buildOptions(server: RegistryServer): PackageOption[] {
   return [...packages, ...remotes];
 }
 
-/** Default: the first npm package, else the first package, else the first remote. */
-function defaultSelector(server: RegistryServer): string | undefined {
+/** Default: the first npm package, else the first package, else the first remote ('' when there is nothing). */
+function defaultSelector(server: RegistryServer): string {
   const packages = server.packages ?? [];
   const npmIndex = packages.findIndex((pkg) => pkg.registryType === 'npm');
   if (npmIndex >= 0) {
@@ -56,23 +52,17 @@ function defaultSelector(server: RegistryServer): string | undefined {
   if ((server.remotes ?? []).length > 0) {
     return 'remote:0';
   }
-  return undefined;
+  return '';
 }
 
-interface EnvRow {
-  id: number;
-  key: string;
-  value: string;
+/** One value per declared env var, in declaration order, prefilled from the registry's value or default. */
+function defaultEnvValues(envVars: RegistryKeyValueInput[]): string[] {
+  return envVars.map((envVar) => envVar.value ?? envVar.default ?? '');
 }
 
-let nextRowId = 0;
-
-function defaultEnvValues(envVars: RegistryKeyValueInput[]): Record<string, string> {
-  const values: Record<string, string> = {};
-  for (const envVar of envVars) {
-    values[envVar.name] = envVar.value ?? envVar.default ?? '';
-  }
-  return values;
+function nameError(value: string): string | undefined {
+  const result = serverNameSchema.safeParse(value);
+  return result.success ? undefined : (result.error.issues[0]?.message ?? 'Invalid name');
 }
 
 interface InstallDialogProps {
@@ -86,178 +76,134 @@ interface InstallDialogProps {
 export function InstallDialog({ registry, server, open, onOpenChange, onInstalled }: InstallDialogProps) {
   const install = useInstallServer();
   const options = useMemo(() => buildOptions(server), [server]);
+  const initialSelector = defaultSelector(server);
 
-  const [name, setName] = useState(() => suggestLocalName(server.name));
-  const [selector, setSelector] = useState(() => defaultSelector(server));
-  const selected = options.find((option) => option.selector === selector);
-  const [envValues, setEnvValues] = useState<Record<string, string>>(() => defaultEnvValues(selected?.envVars ?? []));
-  const [customRows, setCustomRows] = useState<EnvRow[]>([]);
-
-  const nameResult = serverNameSchema.safeParse(name);
-  const nameError = nameResult.success ? undefined : (nameResult.error.issues[0]?.message ?? 'Invalid name');
-
-  const handleSelectorChange = (value: string) => {
-    setSelector(value);
-    const option = options.find((candidate) => candidate.selector === value);
-    setEnvValues(defaultEnvValues(option?.envVars ?? []));
-  };
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!nameResult.success) {
-      return;
-    }
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(envValues)) {
-      if (value) {
-        env[key] = value;
-      }
-    }
-    for (const row of customRows) {
-      if (row.key.trim() && row.value) {
-        env[row.key.trim()] = row.value;
-      }
-    }
-    const body: InstallRequest = {
-      name: nameResult.data,
-      source: { type: 'registry', registry, serverName: server.name, version: server.version },
-      packageSelector: selector,
-      env,
-      enabled: true,
-    };
-    install.mutate(body, {
-      onSuccess: (status) => {
+  const form = useAppForm({
+    defaultValues: {
+      name: suggestLocalName(server.name),
+      selector: initialSelector,
+      envValues: defaultEnvValues(options.find((option) => option.selector === initialSelector)?.envVars ?? []),
+      customRows: [] as KeyValueRow[],
+    },
+    onSubmit: async ({ value }) => {
+      const envVars = options.find((option) => option.selector === value.selector)?.envVars ?? [];
+      const env: Record<string, string> = {};
+      envVars.forEach((envVar, index) => {
+        const envValue = value.envValues[index];
+        if (envValue) {
+          env[envVar.name] = envValue;
+        }
+      });
+      Object.assign(env, rowsToRecord(value.customRows, { skipEmptyValues: true }));
+      const body: InstallRequest = {
+        name: serverNameSchema.parse(value.name),
+        source: { type: 'registry', registry, serverName: server.name, version: server.version },
+        packageSelector: value.selector || undefined,
+        env,
+        enabled: true,
+      };
+      try {
+        const status = await install.mutateAsync(body);
         toast.success(`Installed ${status.config.name}`);
         onOpenChange(false);
         onInstalled?.(status.config.name);
-      },
-      onError: toastApiError,
-    });
-  };
+      } catch (error) {
+        toastApiError(error);
+      }
+    },
+  });
+
+  const name = useStore(form.store, (state) => state.values.name);
+  const selector = useStore(form.store, (state) => state.values.selector);
+  const selected = options.find((option) => option.selector === selector);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Install {server.title ?? server.name}</DialogTitle>
-          <DialogDescription>{server.description}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="install-name">Local name</Label>
-            <Input
-              id="install-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              aria-invalid={!!nameError}
-            />
-            <p className="text-xs text-muted-foreground">
-              Route segment for this server: /mcp/{nameResult.success ? nameResult.data : '…'}
-            </p>
-            {nameError && <p className="text-xs text-destructive">{nameError}</p>}
-          </div>
+    <DialogLayout
+      open={open}
+      onOpenChange={onOpenChange}
+      size="md"
+      title={`Install ${server.title ?? server.name}`}
+      description={server.description}
+      footerActions={(close) => (
+        <>
+          <Button type="button" variant="outline" onClick={close}>
+            Cancel
+          </Button>
+          <form.AppForm>
+            <form.SubmitButton form={FORM_ID} pendingLabel="Installing…">
+              Install
+            </form.SubmitButton>
+          </form.AppForm>
+        </>
+      )}
+      content={
+        <form
+          id={FORM_ID}
+          onSubmit={(event) => {
+            event.preventDefault();
+            form.handleSubmit();
+          }}
+          className="flex flex-col gap-4"
+        >
+          <InputField
+            form={form}
+            name="name"
+            label="Local name"
+            description={`Route segment for this server: /mcp/${nameError(name) ? '…' : name}`}
+            validators={{ onChange: ({ value }) => nameError(value) }}
+          />
 
           {options.length > 1 && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="install-package">Package</Label>
-              <Select value={selector} onValueChange={handleSelectorChange}>
-                <SelectTrigger id="install-package" className="w-full">
-                  <SelectValue placeholder="Select a package" />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((option) => (
-                    <SelectItem key={option.selector} value={option.selector}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <FormField
+              label="Package"
+              control={
+                <OptionSelect
+                  options={options.map((option) => ({ value: option.selector, label: option.label }))}
+                  value={selector}
+                  placeholder="Select a package"
+                  onValueChange={(value) => {
+                    form.setFieldValue('selector', value);
+                    const option = options.find((candidate) => candidate.selector === value);
+                    form.setFieldValue('envValues', defaultEnvValues(option?.envVars ?? []));
+                  }}
+                />
+              }
+            />
           )}
 
           {selected && selected.envVars.length > 0 && (
             <fieldset className="flex flex-col gap-3">
-              <legend className="text-sm font-medium">Environment variables</legend>
-              {selected.envVars.map((envVar) => (
-                <div key={envVar.name} className="flex flex-col gap-1.5">
-                  <Label htmlFor={`install-env-${envVar.name}`} className="font-mono text-xs">
-                    {envVar.name}
-                    {envVar.isRequired && (
-                      <span className="text-destructive" title="Required">
-                        *
-                      </span>
-                    )}
-                  </Label>
-                  {envVar.description && <p className="text-xs text-muted-foreground">{envVar.description}</p>}
-                  <Input
-                    id={`install-env-${envVar.name}`}
-                    type={envVar.isSecret ? 'password' : 'text'}
-                    value={envValues[envVar.name] ?? ''}
-                    placeholder={envVar.placeholder}
-                    onChange={(event) => setEnvValues((current) => ({ ...current, [envVar.name]: event.target.value }))}
-                  />
-                </div>
+              <legend className="mb-3 text-sm font-medium">Environment variables</legend>
+              {selected.envVars.map((envVar, index) => (
+                <InputField
+                  key={`${selector}:${envVar.name}`}
+                  form={form}
+                  name={`envValues[${index}]`}
+                  label={envVar.name}
+                  labelClassName="font-mono text-xs"
+                  required={envVar.isRequired}
+                  description={envVar.description}
+                  type={envVar.isSecret ? 'password' : 'text'}
+                  placeholder={envVar.placeholder}
+                />
               ))}
             </fieldset>
           )}
 
-          <div className="flex flex-col gap-2">
-            <Label>Additional environment variables</Label>
-            {customRows.map((row) => (
-              <div key={row.id} className="flex items-center gap-2">
-                <Input
-                  value={row.key}
-                  placeholder="KEY"
-                  aria-label="Variable name"
-                  className="w-2/5 font-mono"
-                  onChange={(event) =>
-                    setCustomRows((rows) => rows.map((r) => (r.id === row.id ? { ...r, key: event.target.value } : r)))
-                  }
-                />
-                <Input
-                  value={row.value}
-                  placeholder="value"
-                  aria-label={`Value for ${row.key || 'new variable'}`}
-                  className="flex-1 font-mono"
-                  onChange={(event) =>
-                    setCustomRows((rows) =>
-                      rows.map((r) => (r.id === row.id ? { ...r, value: event.target.value } : r)),
-                    )
-                  }
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`Remove ${row.key || 'new variable'}`}
-                  onClick={() => setCustomRows((rows) => rows.filter((r) => r.id !== row.id))}
-                >
-                  <XIcon />
-                </Button>
-              </div>
-            ))}
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setCustomRows((rows) => [...rows, { id: nextRowId++, key: '', value: '' }])}
-              >
-                <PlusIcon /> Add env var
-              </Button>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!!nameError || install.isPending}>
-              {install.isPending ? 'Installing…' : 'Install'}
-            </Button>
-          </DialogFooter>
+          <form.Field name="customRows">
+            {(field) => (
+              <KeyValueRows
+                legend="Additional environment variables"
+                rows={field.state.value}
+                onChange={field.handleChange}
+                keyLabel="Variable name"
+                unnamed="new variable"
+                addLabel="Add env var"
+              />
+            )}
+          </form.Field>
         </form>
-      </DialogContent>
-    </Dialog>
+      }
+    />
   );
 }
