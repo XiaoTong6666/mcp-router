@@ -77,7 +77,7 @@ function templateToRow(template: ServerResourceTemplate): ResourceRowData {
 }
 
 export function ResourcesCard({ scope }: { scope: CapabilityScope }) {
-  const { data, isPending, error, refetch, isRefetching } = useCapabilityResources(scope);
+  const { data, isPending, error, refetch } = useCapabilityResources(scope);
   const rows = [...(data?.resources ?? []).map(toRow), ...(data?.resourceTemplates ?? []).map(templateToRow)];
   const description =
     scope.kind === 'workspace'
@@ -90,9 +90,8 @@ export function ResourcesCard({ scope }: { scope: CapabilityScope }) {
       description={description}
       isPending={isPending}
       error={error}
-      isRefetching={isRefetching}
       refetch={refetch}
-      errorVerb="list resources"
+      what="resources"
       count={rows.length}
       emptyText="No resources reported."
     >

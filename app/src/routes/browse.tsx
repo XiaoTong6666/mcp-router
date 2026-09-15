@@ -3,9 +3,11 @@ import { SearchIcon } from 'lucide-react';
 import { useState } from 'react';
 import { PackageInstallCard } from '@/components/domain/browse/package-install-card';
 import { RegistryServerCard } from '@/components/domain/browse/server-card';
+import { OptionSelect } from '@/components/option-select';
+import { PageLayout } from '@/components/page-layout';
+import { QueryError } from '@/components/query-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRegistries, useRegistrySearch } from '@/lib/queries';
@@ -15,7 +17,8 @@ export const Route = createFileRoute('/browse')({
 });
 
 export function RegistrySearch({ onInstalled }: { onInstalled: (name: string) => void }) {
-  const { data: registries, isPending: registriesPending, error: registriesError } = useRegistries();
+  const registriesQuery = useRegistries();
+  const { data: registries, isPending: registriesPending, error: registriesError } = registriesQuery;
   const [selectedRegistry, setSelectedRegistry] = useState<string>();
   const [searchInput, setSearchInput] = useState('');
   // Only committed on submit (Enter or the Search button) to avoid a registry
@@ -31,18 +34,15 @@ export function RegistrySearch({ onInstalled }: { onInstalled: (name: string) =>
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-2">
-        <Select value={registry || undefined} onValueChange={setSelectedRegistry} disabled={registriesPending}>
-          <SelectTrigger className="w-48" aria-label="Registry">
-            <SelectValue placeholder={registriesPending ? 'Loading…' : 'Registry'} />
-          </SelectTrigger>
-          <SelectContent>
-            {(registries ?? []).map((r) => (
-              <SelectItem key={r.name} value={r.name}>
-                {r.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <OptionSelect
+          className="w-48"
+          aria-label="Registry"
+          options={(registries ?? []).map((r) => ({ value: r.name, label: r.name }))}
+          value={registry}
+          onValueChange={setSelectedRegistry}
+          disabled={registriesPending}
+          placeholder={registriesPending ? 'Loading…' : 'Registry'}
+        />
         <form
           className="flex min-w-64 flex-1 gap-2"
           onSubmit={(event) => {
@@ -66,7 +66,7 @@ export function RegistrySearch({ onInstalled }: { onInstalled: (name: string) =>
       </div>
 
       {registriesError && (
-        <p className="text-sm text-destructive">Failed to load registries: {registriesError.message}</p>
+        <QueryError error={registriesError} onRetry={() => registriesQuery.refetch()} what="registries" />
       )}
 
       {results.isPending && registry && (
@@ -77,7 +77,7 @@ export function RegistrySearch({ onInstalled }: { onInstalled: (name: string) =>
         </div>
       )}
 
-      {results.error && <p className="text-sm text-destructive">Search failed: {results.error.message}</p>}
+      {results.error && <QueryError error={results.error} onRetry={() => results.refetch()} what="search results" />}
 
       {results.data && servers.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">No servers found.</p>
@@ -115,29 +115,27 @@ function BrowsePage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Browse</h1>
-        <p className="text-sm text-muted-foreground">
-          Install MCP servers from a registry, or straight from npm or PyPI.
-        </p>
-      </div>
-      <Tabs defaultValue="registry">
-        <TabsList>
-          <TabsTrigger value="registry">From registry</TabsTrigger>
-          <TabsTrigger value="npm">From npm</TabsTrigger>
-          <TabsTrigger value="pypi">From PyPI</TabsTrigger>
-        </TabsList>
-        <TabsContent value="registry" className="pt-4">
-          <RegistrySearch onInstalled={handleInstalled} />
-        </TabsContent>
-        <TabsContent value="npm" className="pt-4">
-          <PackageInstallCard ecosystem="npm" onInstalled={handleInstalled} />
-        </TabsContent>
-        <TabsContent value="pypi" className="pt-4">
-          <PackageInstallCard ecosystem="pypi" onInstalled={handleInstalled} />
-        </TabsContent>
-      </Tabs>
-    </div>
+    <PageLayout
+      title="Browse"
+      description="Install MCP servers from a registry, or straight from npm or PyPI."
+      content={
+        <Tabs defaultValue="registry" className="py-4 md:py-6">
+          <TabsList>
+            <TabsTrigger value="registry">From registry</TabsTrigger>
+            <TabsTrigger value="npm">From npm</TabsTrigger>
+            <TabsTrigger value="pypi">From PyPI</TabsTrigger>
+          </TabsList>
+          <TabsContent value="registry" className="pt-4">
+            <RegistrySearch onInstalled={handleInstalled} />
+          </TabsContent>
+          <TabsContent value="npm" className="pt-4">
+            <PackageInstallCard ecosystem="npm" onInstalled={handleInstalled} />
+          </TabsContent>
+          <TabsContent value="pypi" className="pt-4">
+            <PackageInstallCard ecosystem="pypi" onInstalled={handleInstalled} />
+          </TabsContent>
+        </Tabs>
+      }
+    />
   );
 }

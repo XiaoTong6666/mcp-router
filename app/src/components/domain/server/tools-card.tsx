@@ -87,7 +87,7 @@ function ToolRow({ scope, tool }: { scope: CapabilityScope; tool: ServerTool }) 
 }
 
 export function ToolsCard({ scope }: { scope: CapabilityScope }) {
-  const { data, isPending, error, refetch, isRefetching } = useCapabilityTools(scope);
+  const { data, isPending, error, refetch } = useCapabilityTools(scope);
   const tools = data?.tools ?? [];
   const description =
     scope.kind === 'workspace'
@@ -100,9 +100,8 @@ export function ToolsCard({ scope }: { scope: CapabilityScope }) {
       description={description}
       isPending={isPending}
       error={error}
-      isRefetching={isRefetching}
       refetch={refetch}
-      errorVerb="list tools"
+      what="tools"
       count={tools.length}
       emptyText="No tools reported."
     >

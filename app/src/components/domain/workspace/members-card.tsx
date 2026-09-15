@@ -1,8 +1,8 @@
 import type { WorkspaceMember, WorkspaceStatus } from '@mcp-router/shared';
 import { toast } from 'sonner';
+import { CardLayout } from '@/components/card-layout';
 import { ServerStateBadge } from '@/components/domain/server/state-badge';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { useServers, useUpdateWorkspace } from '@/lib/queries';
 import { toastApiError } from '@/lib/toast';
@@ -48,18 +48,12 @@ export function MembersCard({ workspace }: { workspace: WorkspaceStatus }) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Servers</CardTitle>
-        <CardDescription>
-          The servers this workspace exposes. Disable one to drop it from the aggregate without removing its overrides.
-          Edit the workspace to change membership or per-workspace parameters.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {memberEntries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">This workspace has no servers yet. Edit it to add some.</p>
-        ) : (
+    <CardLayout
+      title="Servers"
+      description="The servers this workspace exposes. Disable one to drop it from the aggregate without removing its overrides. Edit the workspace to change membership or per-workspace parameters."
+      empty={<p className="text-sm text-muted-foreground">This workspace has no servers yet. Edit it to add some.</p>}
+      content={
+        memberEntries.length > 0 ? (
           <ul className="flex flex-col divide-y">
             {memberEntries.map(([name, member]) => {
               const server = servers?.find((s) => s.config.name === name);
@@ -96,8 +90,8 @@ export function MembersCard({ workspace }: { workspace: WorkspaceStatus }) {
               );
             })}
           </ul>
-        )}
-      </CardContent>
-    </Card>
+        ) : null
+      }
+    />
   );
 }

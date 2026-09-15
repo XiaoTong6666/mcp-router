@@ -2,11 +2,11 @@ import type { ActivityEntry } from '@mcp-router/shared';
 import { ChevronRightIcon, RotateCwIcon, Trash2Icon } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { CardLayout } from '@/components/card-layout';
+import { OptionSelect } from '@/components/option-select';
+import { QueryError } from '@/components/query-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import type { CapabilityScope } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/format';
 import { useCapabilityActivity, useClearActivity } from '@/lib/queries';
@@ -86,89 +86,79 @@ export function ActivityCard({ scope }: { scope: CapabilityScope }) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          Activity
-          <span className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={isRefetching} onClick={() => refetch()}>
-              <RotateCwIcon /> Refresh
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={clear.isPending || entries.length === 0}
-              onClick={handleClear}
-            >
-              <Trash2Icon /> Clear
-            </Button>
-          </span>
-        </CardTitle>
-        <CardDescription>
-          {scope.kind === 'server'
-            ? 'Recent MCP calls proxied to this server (kept in memory; the newest 200 are retained).'
-            : "Recent MCP calls proxied through this workspace's members (kept in memory; the newest 200 per member are retained)."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isPending && (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-5 w-2/3" />
-            <Skeleton className="h-5 w-1/2" />
-          </div>
-        )}
-        {error && <p className="text-sm text-destructive">Failed to load activity: {error.message}</p>}
-        {data && entries.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No activity yet. Calls made through <code className="font-mono">{endpoint}</code>
-            {scope.kind === 'server' && (
-              <>
-                {' '}
-                or the aggregate <code className="font-mono">/mcp</code> endpoint
-              </>
-            )}{' '}
-            will appear here.
-          </p>
-        )}
-        {entries.length > 0 && (
-          <>
-            <div className="mb-3 flex flex-wrap gap-2">
-              <Select value={outcome} onValueChange={(value) => setOutcome(value as typeof outcome)}>
-                <SelectTrigger size="sm" className="w-28" aria-label="Filter by outcome">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="ok">OK</SelectItem>
-                  <SelectItem value="error">Errors</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={method} onValueChange={setMethod}>
-                <SelectTrigger size="sm" className="w-52" aria-label="Filter by method">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All methods</SelectItem>
-                  {methods.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {value}
-                    </SelectItem>
+    <CardLayout
+      title="Activity"
+      action={
+        <span className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={isRefetching} onClick={() => refetch()}>
+            <RotateCwIcon /> Refresh
+          </Button>
+          <Button variant="outline" size="sm" disabled={clear.isPending || entries.length === 0} onClick={handleClear}>
+            <Trash2Icon /> Clear
+          </Button>
+        </span>
+      }
+      description={
+        scope.kind === 'server'
+          ? 'Recent MCP calls proxied to this server (kept in memory; the newest 200 are retained).'
+          : "Recent MCP calls proxied through this workspace's members (kept in memory; the newest 200 per member are retained)."
+      }
+      loading={isPending}
+      content={
+        <>
+          {error && <QueryError error={error} onRetry={() => refetch()} what="activity" />}
+          {data && entries.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No activity yet. Calls made through <code className="font-mono">{endpoint}</code>
+              {scope.kind === 'server' && (
+                <>
+                  {' '}
+                  or the aggregate <code className="font-mono">/mcp</code> endpoint
+                </>
+              )}{' '}
+              will appear here.
+            </p>
+          )}
+          {entries.length > 0 && (
+            <>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <OptionSelect
+                  data-size="sm"
+                  className="w-28"
+                  aria-label="Filter by outcome"
+                  options={[
+                    { value: 'all', label: 'All' },
+                    { value: 'ok', label: 'OK' },
+                    { value: 'error', label: 'Errors' },
+                  ]}
+                  value={outcome}
+                  onValueChange={(value) => setOutcome(value as typeof outcome)}
+                />
+                <OptionSelect
+                  data-size="sm"
+                  className="w-52"
+                  aria-label="Filter by method"
+                  options={[
+                    { value: 'all', label: 'All methods' },
+                    ...methods.map((value) => ({ value, label: value })),
+                  ]}
+                  value={method}
+                  onValueChange={setMethod}
+                />
+              </div>
+              {filtered.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No entries match the current filters.</p>
+              ) : (
+                <ul className="flex flex-col divide-y">
+                  {filtered.map((entry) => (
+                    <ActivityRow key={entry.id} entry={entry} />
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No entries match the current filters.</p>
-            ) : (
-              <ul className="flex flex-col divide-y">
-                {filtered.map((entry) => (
-                  <ActivityRow key={entry.id} entry={entry} />
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+                </ul>
+              )}
+            </>
+          )}
+        </>
+      }
+    />
   );
 }

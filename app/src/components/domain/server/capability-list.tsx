@@ -1,8 +1,9 @@
 import type { UseMutationResult } from '@tanstack/react-query';
-import { ChevronRightIcon, Loader2Icon, PlayIcon, RotateCwIcon } from 'lucide-react';
+import { ChevronRightIcon, Loader2Icon, PlayIcon } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { CardLayout } from '@/components/card-layout';
+import { QueryError } from '@/components/query-state';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toastApiError } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -13,10 +14,9 @@ interface CapabilityListProps {
   description: string;
   isPending: boolean;
   error: Error | null;
-  isRefetching: boolean;
   refetch: () => void;
-  /** Loading verb used in the error line, e.g. "list resources". */
-  errorVerb: string;
+  /** What failed to load, for the error card, e.g. "resources". */
+  what: string;
   /** Number of items; 0 renders the empty state. */
   count: number;
   emptyText: string;
@@ -34,42 +34,32 @@ export function CapabilityList({
   description,
   isPending,
   error,
-  isRefetching,
   refetch,
-  errorVerb,
+  what,
   count,
   emptyText,
   children,
 }: CapabilityListProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isPending && (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">Connecting to the server — this may take a moment…</p>
-            <Skeleton className="h-5 w-2/3" />
-            <Skeleton className="h-5 w-1/2" />
-            <Skeleton className="h-5 w-3/5" />
-          </div>
-        )}
-        {error && (
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-sm text-destructive">
-              Failed to {errorVerb}: {error.message}
-            </p>
-            <Button variant="outline" size="sm" disabled={isRefetching} onClick={refetch}>
-              <RotateCwIcon /> Retry
-            </Button>
-          </div>
-        )}
-        {!isPending && !error && count === 0 && <p className="text-sm text-muted-foreground">{emptyText}</p>}
-        {!isPending && count > 0 && <ul className="flex flex-col divide-y">{children}</ul>}
-      </CardContent>
-    </Card>
+    <CardLayout
+      title={title}
+      description={description}
+      content={
+        <>
+          {isPending && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">Connecting to the server — this may take a moment…</p>
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+              <Skeleton className="h-5 w-3/5" />
+            </div>
+          )}
+          {error && <QueryError error={error} onRetry={refetch} what={what} />}
+          {!isPending && !error && count === 0 && <p className="text-sm text-muted-foreground">{emptyText}</p>}
+          {!isPending && count > 0 && <ul className="flex flex-col divide-y">{children}</ul>}
+        </>
+      }
+    />
   );
 }
 
