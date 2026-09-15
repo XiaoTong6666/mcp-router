@@ -43,17 +43,15 @@ export function listAll<Page extends { nextCursor?: string }, T>(
 }
 
 /**
- * Fully-drained variants of the four paginated MCP list calls. Every aggregate
- * and UI listing needs all pages (a client cursor can neither be fanned out to
- * N servers nor replayed across pages), so these fold the `list`/`pick` pair
- * that would otherwise be repeated at each call site.
+ * Fully-drained variants of the paginated MCP list calls. Every aggregate and UI
+ * listing needs all pages (a client cursor can neither be fanned out to N servers
+ * nor replayed across pages), so these fold the `list`/`pick` pair that would
+ * otherwise be repeated at each call site.
+ *
+ * Tools come from `@cubicecho/agent-mcp-pool`'s `listAllTools`, which also refuses
+ * a repeated cursor. The pool has no equivalent for these three yet; once it does,
+ * this file goes.
  */
-export const listAllTools = (client: Client) =>
-  listAll(
-    (params) => client.listTools(params),
-    (result) => result.tools,
-  );
-
 export const listAllResources = (client: Client) =>
   listAll(
     (params) => client.listResources(params),

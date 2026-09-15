@@ -1,3 +1,4 @@
+import { listAllTools } from '@cubicecho/agent-mcp-pool';
 import type { ServerConfig, ServerStatus } from '@mcp-router/shared';
 import {
   activityResponseSchema,
@@ -10,7 +11,7 @@ import {
 import { Router } from 'express';
 import { errorMessage, HttpError } from '../../errors.ts';
 import { emptyOnMissing } from '../../gateway/capability.ts';
-import { listAllPrompts, listAllResources, listAllResourceTemplates, listAllTools } from '../../gateway/pagination.ts';
+import { listAllPrompts, listAllResources, listAllResourceTemplates } from '../../gateway/pagination.ts';
 import { toolCallFailed, toolErrorText } from '../../gateway/proxy.ts';
 import { buildServerConfig, deriveServerName, uninstall } from '../../installer/installer.ts';
 import { connect, runUiCall } from '../calls.ts';
@@ -109,7 +110,7 @@ export function createServerRoutes({ store, manager, registryClient, dataDir }: 
     res.json(requireStatus(name));
   });
 
-  // Every listing drains all pages (listAll), so a downstream that paginates
+  // Every listing drains all pages (listAll*), so a downstream that paginates
   // doesn't silently lose items — or, for tools, report a wrong count — past
   // page 1.
   router.get('/:name/tools', async (req, res) => {

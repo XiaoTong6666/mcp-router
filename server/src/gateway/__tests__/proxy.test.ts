@@ -256,6 +256,26 @@ describe('aggregate activity recording', () => {
     expect(activity).toEqual([]);
   });
 
+  it('skips and records a downstream that repeats a tools/list cursor, rather than truncating it', async () => {
+    const { activity, record } = collector();
+    const loopingClient = {
+      listTools: async () => ({ tools: [{ name: 'again', inputSchema: { type: 'object' } }], nextCursor: 'same' }),
+    };
+    const deps: AggregateDeps = {
+      ...stubDeps(loopingClient, { recordActivity: record }),
+      serverNames: () => ['alpha'],
+    };
+    const { client, close } = await connectAggregate(deps);
+
+    const result = await client.listTools();
+    await close();
+
+    expect(result.tools).toEqual([]);
+    expect(activity).toHaveLength(1);
+    expect(activity[0]).toMatchObject({ name: 'alpha', method: 'tools/list', via: 'aggregate', ok: false });
+    expect(activity[0]?.error).toContain('repeated the tools/list cursor');
+  });
+
   it('records a server that errors during the aggregate list fan-out, and still serves the rest', async () => {
     const { activity, record } = collector();
     const goodClient = {
