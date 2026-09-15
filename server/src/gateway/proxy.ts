@@ -1,6 +1,6 @@
 // Re-exported by the pool so this file can type the field without reaching into the SDK's
 // module layout, which the pool pins through its peer dependency anyway.
-import type { ServerCapabilities } from '@cubicecho/agent-mcp-pool';
+import { listAllTools, type ServerCapabilities } from '@cubicecho/agent-mcp-pool';
 import type { ActivityEntry } from '@mcp-router/shared';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -25,7 +25,7 @@ import { SERVER_VERSION } from '../version.ts';
 import { emptyOnMissing } from './capability.ts';
 import { collectFrom } from './fan-out.ts';
 import { namespaceName, splitNamespacedName } from './naming.ts';
-import { listAllPrompts, listAllResources, listAllResourceTemplates, listAllTools } from './pagination.ts';
+import { listAllPrompts, listAllResources, listAllResourceTemplates } from './pagination.ts';
 
 /**
  * What an endpoint advertises when it cannot know what is behind it: everything

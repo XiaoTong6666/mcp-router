@@ -1,3 +1,4 @@
+import { listAllTools } from '@cubicecho/agent-mcp-pool';
 import type { WorkspaceConfig, WorkspaceStatus } from '@mcp-router/shared';
 import {
   activityResponseSchema,
@@ -17,7 +18,7 @@ import { collectFrom } from '../../gateway/fan-out.ts';
 import { workspaceInstanceKey } from '../../gateway/manager.ts';
 import { enabledMembers, existingMembers } from '../../gateway/members.ts';
 import { namespaceName, splitNamespacedName } from '../../gateway/naming.ts';
-import { listAllPrompts, listAllResources, listAllResourceTemplates, listAllTools } from '../../gateway/pagination.ts';
+import { listAllPrompts, listAllResources, listAllResourceTemplates } from '../../gateway/pagination.ts';
 import { toolCallFailed, toolErrorText } from '../../gateway/proxy.ts';
 import { type DownstreamClient, runUiCall, type UiCallContext } from '../calls.ts';
 import type { ApiDeps } from '../deps.ts';
