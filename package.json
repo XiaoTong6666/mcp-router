@@ -1,6 +1,6 @@
 {
   "name": "mcp-router",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "private": true,
   "description": "MCP Router - install MCP servers from registries/npm and re-expose them over streamable HTTP",
   "type": "module",
