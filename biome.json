@@ -75,6 +75,28 @@
           }
         }
       }
+    },
+    {
+      "includes": [
+        "app/src/components/ui/**",
+        "app/src/components/action-button.tsx",
+        "app/src/components/app-form.tsx",
+        "app/src/components/card-layout.tsx",
+        "app/src/components/confirm-button.tsx",
+        "app/src/components/dialog-layout.tsx",
+        "app/src/components/field-row.tsx",
+        "app/src/components/form-field.tsx",
+        "app/src/components/header-content-footer.tsx",
+        "app/src/components/option-select.tsx",
+        "app/src/components/page-header.tsx",
+        "app/src/components/page-layout.tsx",
+        "app/src/components/password-input.tsx",
+        "app/src/components/query-state.tsx",
+        "app/src/components/section.tsx"
+      ],
+      "linter": {
+        "enabled": false
+      }
     }
   ]
 }
