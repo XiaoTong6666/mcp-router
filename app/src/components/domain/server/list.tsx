@@ -3,20 +3,10 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Loader2Icon, PencilIcon, PlugZapIcon, RotateCwIcon, SearchIcon, Trash2Icon } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { ActionButton } from '@/components/action-button';
+import { ConfirmButton } from '@/components/confirm-button';
 import { AddServerDialog } from '@/components/domain/server/add-server-dialog';
 import { ServerStateBadge } from '@/components/domain/server/state-badge';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -112,76 +102,56 @@ function ServerRow({ server, onEdit }: { server: ServerStatus; onEdit: (server: 
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Test connection to ${config.name}`}
-                disabled={test.isPending}
-                onClick={handleTest}
-              >
-                {test.isPending ? <Loader2Icon className="animate-spin" /> : <PlugZapIcon />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Test connection</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Edit ${config.name}`} onClick={() => onEdit(server)}>
-                <PencilIcon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Edit</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Restart ${config.name}`}
-                disabled={restart.isPending}
-                onClick={() =>
-                  restart.mutate(config.name, {
-                    onSuccess: () => toast.success(`Restarted ${config.name}`),
-                    onError: toastApiError,
-                  })
-                }
-              >
-                <RotateCwIcon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Restart</TooltipContent>
-          </Tooltip>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Delete ${config.name}`}>
-                <Trash2Icon className="text-destructive" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {config.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This stops the server, deletes its config file, and removes its install directory. This cannot be
-                  undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() =>
-                    remove.mutate(config.name, {
-                      onSuccess: () => toast.success(`Deleted ${config.name}`),
-                      onError: toastApiError,
-                    })
-                  }
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <ActionButton
+            variant="ghost"
+            size="icon-sm"
+            label={`Test connection to ${config.name}`}
+            hint="Test connection"
+            disabled={test.isPending}
+            onClick={handleTest}
+          >
+            {test.isPending ? <Loader2Icon className="animate-spin" /> : <PlugZapIcon />}
+          </ActionButton>
+          <ActionButton
+            variant="ghost"
+            size="icon-sm"
+            label={`Edit ${config.name}`}
+            hint="Edit"
+            onClick={() => onEdit(server)}
+          >
+            <PencilIcon />
+          </ActionButton>
+          <ActionButton
+            variant="ghost"
+            size="icon-sm"
+            label={`Restart ${config.name}`}
+            hint="Restart"
+            disabled={restart.isPending}
+            onClick={() =>
+              restart.mutate(config.name, {
+                onSuccess: () => toast.success(`Restarted ${config.name}`),
+                onError: toastApiError,
+              })
+            }
+          >
+            <RotateCwIcon />
+          </ActionButton>
+          <ConfirmButton
+            variant="ghost"
+            size="icon-sm"
+            label={`Delete ${config.name}`}
+            hint="Delete"
+            title={`Delete ${config.name}?`}
+            description="This stops the server, deletes its config file, and removes its install directory. This cannot be undone."
+            onConfirm={() =>
+              remove.mutate(config.name, {
+                onSuccess: () => toast.success(`Deleted ${config.name}`),
+                onError: toastApiError,
+              })
+            }
+          >
+            <Trash2Icon className="text-destructive" />
+          </ConfirmButton>
         </div>
       </TableCell>
     </TableRow>

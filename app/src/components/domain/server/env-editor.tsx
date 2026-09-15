@@ -1,6 +1,7 @@
 import type { EnvVarMeta } from '@mcp-router/shared';
 import { EyeIcon, EyeOffIcon, PlusIcon, XIcon } from 'lucide-react';
 import { useState } from 'react';
+import { ActionButton } from '@/components/action-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -113,26 +114,24 @@ export function EnvEditor({ env, envMeta, onSave, saving = false }: EnvEditorPro
                 onChange={(event) => updateRow(row.id, { value: event.target.value })}
               />
               {isSecret && (
-                <Button
-                  type="button"
+                <ActionButton
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={isRevealed ? `Hide ${row.key}` : `Reveal ${row.key}`}
+                  label={isRevealed ? `Hide ${row.key}` : `Reveal ${row.key}`}
                   onClick={() => toggleReveal(row.id)}
                 >
                   {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
-                </Button>
+                </ActionButton>
               )}
               {(row.isNew || meta === undefined) && (
-                <Button
-                  type="button"
+                <ActionButton
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`Remove ${row.key || 'new variable'}`}
+                  label={`Remove ${row.key || 'new variable'}`}
                   onClick={() => removeRow(row.id)}
                 >
                   <XIcon />
-                </Button>
+                </ActionButton>
               )}
             </div>
           </div>

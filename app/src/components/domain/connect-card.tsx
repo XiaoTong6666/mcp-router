@@ -1,8 +1,8 @@
-import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon } from 'lucide-react';
+import { EyeIcon, EyeOffIcon } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
+import { CardLayout } from '@/components/card-layout';
+import { CopyButton } from '@/components/domain/copy-button';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getToken } from '@/lib/auth';
 import { useRouterStatus } from '@/lib/queries';
@@ -71,32 +71,12 @@ function opencodeSnippet({ endpoint, label, token }: SnippetInput): string {
 }
 
 function Snippet({ display, copyText }: { display: string; copyText: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(copyText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error('Failed to copy to clipboard');
-    }
-  };
-
   return (
     <div className="relative">
       <pre className="overflow-x-auto rounded-md bg-muted p-3 pr-12 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
         {display}
       </pre>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Copy snippet"
-        className="absolute top-2 right-2"
-        onClick={copy}
-      >
-        {copied ? <CheckIcon /> : <CopyIcon />}
-      </Button>
+      <CopyButton text={copyText} label="Copy snippet" className="absolute top-2 right-2" />
     </div>
   );
 }
@@ -132,43 +112,44 @@ export function ConnectCard({
   ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2">
-          Connect a client
-          {authEnabled && token && (
-            <Button variant="outline" size="sm" onClick={() => setRevealed((v) => !v)}>
-              {revealed ? <EyeOffIcon /> : <EyeIcon />}
-              {revealed ? 'Hide token' : 'Reveal token'}
-            </Button>
-          )}
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="claude-code">
-          <TabsList>
-            {snippets.map(({ value, title }) => (
-              <TabsTrigger key={value} value={value}>
-                {title}
-              </TabsTrigger>
+    <CardLayout
+      title="Connect a client"
+      description={description}
+      action={
+        authEnabled &&
+        token && (
+          <Button variant="outline" size="sm" onClick={() => setRevealed((v) => !v)}>
+            {revealed ? <EyeOffIcon /> : <EyeIcon />}
+            {revealed ? 'Hide token' : 'Reveal token'}
+          </Button>
+        )
+      }
+      content={
+        <>
+          <Tabs defaultValue="claude-code">
+            <TabsList>
+              {snippets.map(({ value, title }) => (
+                <TabsTrigger key={value} value={value}>
+                  {title}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {snippets.map(({ value, build }) => (
+              <TabsContent key={value} value={value} className="pt-2">
+                <Snippet
+                  display={build({ endpoint, label, token: displayToken })}
+                  copyText={build({ endpoint, label, token: copyToken })}
+                />
+              </TabsContent>
             ))}
-          </TabsList>
-          {snippets.map(({ value, build }) => (
-            <TabsContent key={value} value={value} className="pt-2">
-              <Snippet
-                display={build({ endpoint, label, token: displayToken })}
-                copyText={build({ endpoint, label, token: copyToken })}
-              />
-            </TabsContent>
-          ))}
-        </Tabs>
-        {authEnabled && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Copied snippets include your bearer token{token ? '' : ' placeholder'} — treat them as secrets.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+          </Tabs>
+          {authEnabled && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Copied snippets include your bearer token{token ? '' : ' placeholder'} — treat them as secrets.
+            </p>
+          )}
+        </>
+      }
+    />
   );
 }

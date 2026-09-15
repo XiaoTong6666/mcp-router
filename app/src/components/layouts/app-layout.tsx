@@ -11,9 +11,8 @@ import {
   SunIcon,
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { ActionButton } from '@/components/action-button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { clearToken, requireAuth } from '@/lib/auth';
 import { useRouterStatus } from '@/lib/queries';
 import { isDark, setDark } from '@/lib/theme';
@@ -35,14 +34,14 @@ function ThemeToggle() {
   };
 
   return (
-    <Button
+    <ActionButton
       variant="ghost"
       size="icon-sm"
-      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
       onClick={toggle}
     >
       {dark ? <SunIcon /> : <MoonIcon />}
-    </Button>
+    </ActionButton>
   );
 }
 
@@ -60,14 +59,15 @@ function LockButton() {
   };
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label="Lock (forget the stored token)" onClick={lock}>
-          <LockIcon />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>Lock — forget the stored token</TooltipContent>
-    </Tooltip>
+    <ActionButton
+      variant="ghost"
+      size="icon-sm"
+      label="Lock (forget the stored token)"
+      hint="Lock — forget the stored token"
+      onClick={lock}
+    >
+      <LockIcon />
+    </ActionButton>
   );
 }
 
@@ -111,7 +111,7 @@ function MobileNav() {
 
 export function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-dvh">
       <aside className="hidden w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <div className="flex items-center gap-2 px-4 py-4 font-semibold">
           <RouteIcon className="size-5" />
@@ -144,7 +144,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <MobileNav />
           <HeaderStatus />
         </header>
-        <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </div>
     </div>
   );

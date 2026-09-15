@@ -52,7 +52,7 @@ function PromptRow({ scope, prompt }: { scope: CapabilityScope; prompt: ServerPr
 }
 
 export function PromptsCard({ scope }: { scope: CapabilityScope }) {
-  const { data, isPending, error, refetch, isRefetching } = useCapabilityPrompts(scope);
+  const { data, isPending, error, refetch } = useCapabilityPrompts(scope);
   const prompts = data?.prompts ?? [];
   const description =
     scope.kind === 'workspace'
@@ -65,9 +65,8 @@ export function PromptsCard({ scope }: { scope: CapabilityScope }) {
       description={description}
       isPending={isPending}
       error={error}
-      isRefetching={isRefetching}
       refetch={refetch}
-      errorVerb="list prompts"
+      what="prompts"
       count={prompts.length}
       emptyText="No prompts reported."
     >
