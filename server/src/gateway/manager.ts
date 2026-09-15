@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util';
 import {
   type McpConnection,
   McpPool,
@@ -8,6 +7,7 @@ import {
   type McpStatus,
   MINIMAL_CHILD_ENV,
   type ServerCapabilities,
+  sameConnection,
 } from '@cubicecho/agent-mcp-pool';
 import type {
   ActivityEntry,
@@ -205,15 +205,17 @@ function toPoolConfig(key: string, config: ServerConfig, settings: SettingsFile)
 /**
  * True when two configs differ in a way that restarts the downstream connection.
  *
- * Mirrors the pool's own `sameConnection` — which decides the restart — for the
- * one piece of derived state the router keeps across a reconcile: a tool count
- * read from the old child is not true of a new one.
+ * Asks the pool's own `sameConnection` — which decides the restart — about the
+ * rows `toPoolConfig` would hand it, for the one piece of derived state the router
+ * keeps across a reconcile: a tool count read from the old child is not true of a
+ * new one. Only the connection fields matter, so the identity is left blank.
  */
 export function needsRestart(a: ServerConfig, b: ServerConfig): boolean {
-  return !isDeepStrictEqual(
-    { transport: a.transport, env: a.env, enabled: a.enabled },
-    { transport: b.transport, env: b.env, enabled: b.enabled },
-  );
+  return !sameConnection(connectionRow(a), connectionRow(b));
+}
+
+function connectionRow(config: ServerConfig): McpServerConfig {
+  return { id: '', label: '', enabled: config.enabled, ...toConnection(config) };
 }
 
 /** How the pool's connection status reads on this API. `disabled` and `idle` are both "no child, nothing wrong". */

@@ -1,6 +1,10 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import type { ActivityEntry } from '@mcp-router/shared';
 import { serverConfigSchema, settingsFileSchema, workspaceConfigSchema } from '@mcp-router/shared';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { describe, expect, it } from 'vitest';
 import { SERVER_VERSION } from '../../version.ts';
 import { GatewayManager, workspaceInstanceKey } from '../manager.ts';
@@ -396,6 +400,56 @@ describe('GatewayManager lifecycle over the pool', () => {
       expect(manager.capabilities('echo')).toBeUndefined();
     } finally {
       await manager.stopAll();
+    }
+  });
+
+  it("keeps a remote server's instructions, capabilities and tool count across an env edit", async () => {
+    // A remote server has no child to hand `env` to, so the pool keeps the connection
+    // it has — and what was read from that connection is still true of it.
+    let initializes = 0;
+    const httpServer = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      const body: unknown = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
+      if ((body as { method?: string } | undefined)?.method === 'initialize') {
+        initializes += 1;
+      }
+      const server = new McpServer({ name: 'remote', version: '1.0.0' }, { instructions: ECHO_INSTRUCTIONS });
+      server.tool('noop', 'Does nothing.', {}, () => ({ content: [] }));
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+      res.on('close', () => void server.close());
+      await server.connect(transport);
+      await transport.handleRequest(req, res, body);
+    });
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+    const { port } = httpServer.address() as AddressInfo;
+    const remote = (env?: Record<string, string>) =>
+      serverConfigSchema.parse({
+        name: 'remote',
+        source: { type: 'remote' },
+        transport: { type: 'streamable-http', url: `http://127.0.0.1:${port}/mcp` },
+        env,
+      });
+
+    const manager = new GatewayManager(() => settings);
+    await manager.reconcile([remote()]);
+    try {
+      await manager.getClient('remote');
+      manager.recordToolCount('remote', 1);
+      expect(initializes).toBe(1);
+
+      await manager.reconcile([remote({ UNUSED: '1' })]);
+
+      expect(manager.status('remote')?.toolCount).toBe(1);
+      expect(manager.instructions('remote')).toBe(ECHO_INSTRUCTIONS);
+      expect(manager.capabilities('remote')).toMatchObject({ tools: expect.anything() });
+      await manager.getClient('remote');
+      expect(initializes).toBe(1);
+    } finally {
+      await manager.stopAll();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
   });
 
