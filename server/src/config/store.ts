@@ -22,6 +22,10 @@ export interface ConfigState {
   workspaces: WorkspaceConfig[];
 }
 
+interface OAuthSecretsFile {
+  ownerToken: string;
+}
+
 const WATCH_DEBOUNCE_MS = 300;
 
 /**
@@ -35,11 +39,13 @@ export class ConfigStore extends EventEmitter<{ change: [ConfigState] }> {
   readonly configDir: string;
   readonly serversDir: string;
   readonly workspacesDir: string;
+  readonly oauthSecretsFile: string;
 
   private settings: SettingsFile = settingsFileSchema.parse({});
   private registries: Registry[] = [];
   private servers = new Map<string, ServerConfig>();
   private workspaces = new Map<string, WorkspaceConfig>();
+  private oauthOwnerToken: string | null = null;
   private watcher: FSWatcher | null = null;
   private watchDebounce: NodeJS.Timeout | null = null;
 
@@ -49,6 +55,7 @@ export class ConfigStore extends EventEmitter<{ change: [ConfigState] }> {
     this.configDir = path.join(dataDir, 'config');
     this.serversDir = path.join(this.configDir, 'servers');
     this.workspacesDir = path.join(this.configDir, 'workspaces');
+    this.oauthSecretsFile = path.join(this.configDir, 'oauth.json');
   }
 
   /** Create directories, seed defaults on first run and load everything. */
@@ -109,6 +116,10 @@ export class ConfigStore extends EventEmitter<{ change: [ConfigState] }> {
     return this.settings;
   }
 
+  getOAuthOwnerToken(): string | null {
+    return this.oauthOwnerToken;
+  }
+
   getRegistries(): Registry[] {
     return this.registries;
   }
@@ -130,6 +141,11 @@ export class ConfigStore extends EventEmitter<{ change: [ConfigState] }> {
     const next = settingsFileSchema.parse({ ...this.settings, ...patch });
     await this.writeJsonAtomic(path.join(this.configDir, 'settings.json'), next);
     this.settings = next;
+    if (next.oauth.enabled && !this.oauthOwnerToken) {
+      this.oauthOwnerToken = await this.resolveOAuthOwnerToken();
+    } else if (!next.oauth.enabled) {
+      this.oauthOwnerToken = null;
+    }
     return next;
   }
 
@@ -196,6 +212,7 @@ export class ConfigStore extends EventEmitter<{ change: [ConfigState] }> {
 
   private async loadAll(): Promise<void> {
     this.settings = await this.loadSettings();
+    this.oauthOwnerToken = this.settings.oauth.enabled ? await this.resolveOAuthOwnerToken() : null;
     this.registries = await this.loadRegistries();
     this.servers = await this.loadServers();
     this.workspaces = await this.loadWorkspaces();
@@ -214,12 +231,49 @@ export class ConfigStore extends EventEmitter<{ change: [ConfigState] }> {
     if (settings.authEnabled && !authDisabledByEnv() && !settings.authToken && !process.env.MCP_ROUTER_TOKEN) {
       settings.authToken = randomBytes(32).toString('hex');
       dirty = true;
-      console.log(`Generated auth token (persisted to ${file}):\n  ${settings.authToken}`);
+      console.log(`Generated auth token (persisted to ${file})`);
     }
     if (dirty) {
       await this.writeJsonAtomic(file, settings);
     }
     return settings;
+  }
+
+  private async resolveOAuthOwnerToken(): Promise<string> {
+    const fromEnv = process.env.MCP_ROUTER_OAUTH_OWNER_TOKEN;
+    if (fromEnv !== undefined) {
+      if (fromEnv.length < 16) {
+        throw new Error('MCP_ROUTER_OAUTH_OWNER_TOKEN must be at least 16 characters long');
+      }
+      return fromEnv;
+    }
+    return this.loadOAuthOwnerToken();
+  }
+
+  private async loadOAuthOwnerToken(): Promise<string> {
+    if (existsSync(this.oauthSecretsFile)) {
+      const parsed = this.parseFile(
+        this.oauthSecretsFile,
+        await readFile(this.oauthSecretsFile, 'utf8'),
+        (value: unknown): OAuthSecretsFile => {
+          if (
+            typeof value !== 'object' ||
+            value === null ||
+            typeof (value as { ownerToken?: unknown }).ownerToken !== 'string' ||
+            (value as { ownerToken: string }).ownerToken.length < 16
+          ) {
+            throw new Error('ownerToken must be a string at least 16 characters long');
+          }
+          return { ownerToken: (value as { ownerToken: string }).ownerToken };
+        },
+      );
+      return parsed.ownerToken;
+    }
+
+    const ownerToken = randomBytes(32).toString('base64url');
+    await this.writeJsonAtomic(this.oauthSecretsFile, { ownerToken } satisfies OAuthSecretsFile);
+    console.log(`Generated OAuth owner password (persisted to ${this.oauthSecretsFile})`);
+    return ownerToken;
   }
 
   private async loadRegistries(): Promise<Registry[]> {

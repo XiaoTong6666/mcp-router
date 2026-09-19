@@ -55,6 +55,30 @@ export const settingsFileSchema = z
     /** Extra browser Origins allowed to reach /mcp, for DNS-rebinding protection. Loopback origins
      *  are always allowed and native MCP clients send no Origin; add browser-based clients here. */
     allowedOrigins: z.array(z.string()).default([]),
+    /** Public HTTPS origin used to advertise OAuth metadata. Env MCP_ROUTER_PUBLIC_BASE_URL wins.
+     *  When omitted, a loopback URL derived from host/port is used (mainly for local development). */
+    publicBaseUrl: z.string().url().optional(),
+    /** OAuth 2.1 authorization for remote MCP clients. The management API keeps using authToken. */
+    oauth: z
+      .object({
+        enabled: z.boolean().default(false),
+        accessTokenTtlSeconds: z.number().int().positive().default(60 * 60),
+        refreshTokenTtlSeconds: z.number().int().positive().default(30 * 24 * 60 * 60),
+        scopes: z.array(z.string().min(1)).min(1).default(['mcp-router']),
+        allowedRedirectHosts: z
+          .array(z.string().min(1))
+          .default([
+            'chatgpt.com',
+            'oauth-redirect-sandbox.googleusercontent.com',
+            'oauth-redirect-test.googleusercontent.com',
+            'oauth-redirect.googleusercontent.com',
+            'localhost',
+            '127.0.0.1',
+          ]),
+        /** Additional MCP resource URLs allowed when exchanging/refreshing OAuth tokens. */
+        allowedResourceUrls: z.array(z.string().url()).default([]),
+      })
+      .default({}),
     /** Default idle shutdown for stdio child processes (per-server override wins). */
     idleTimeoutMs: z
       .number()
